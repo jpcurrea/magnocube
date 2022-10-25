@@ -1,3 +1,0 @@
-[submodule "DAQ"]
-	path = DAQ
-	url = https://github.com/jpcurrea/magnocube.git

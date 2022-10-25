@@ -7,3 +7,8 @@ To generate stimuli, we are using the Holocube program built by Jamie Theobald w
 Finally, the rig relays the fly's heading to update the display (goal #3). This offers many useful features. For instance, we can now control the starting point of stimuli in closed-loop, such as always starting an experiment with a bar at the center of the visual field (or anywhere within the visual field, really). Previously, researchers had to rely on randomness to measure responses to stimuli in different locations. Moreso, this updating signal of the fly's heading allows us to remove visual feedback caused by the body's rotation. This allows for open-loop vision experiments (like the rigid tether paradigm) in the context of closed-loop proprioceptive feedback (unlike the rigid tether). 
 
 To coordinate the camera, projector, and DAQ, we are developing a Python module with 3 major classes (Camera, Projector, and DAQ) that integrate well with Holocube.
+
+Important Directories:
+	./holocube contains the libraries for generating and projecting stimuli using 
+	./experiments contains several example scripts for generating experimental stimuli
+	./data_acquisition has some programs in progress on reading and writing the NI DAQ
