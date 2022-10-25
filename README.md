@@ -9,6 +9,6 @@ Finally, the rig relays the fly's heading to update the display (goal #3). This 
 To coordinate the camera, projector, and DAQ, we are developing a Python module with 3 major classes (Camera, Projector, and DAQ) that integrate well with Holocube.
 
 Important Directories:
--[./holocube](https://github.com/jpcurrea/magnocube/tree/main/holocube) contains the libraries for generating and projecting stimuli using 
--[./experiments](https://github.com/jpcurrea/magnocube/tree/main/experiments) contains several example scripts for generating experimental stimuli
--[./data_acquisition](https://github.com/jpcurrea/magnocube/tree/main/data_acquisition) has some programs in progress on reading and writing the NI DAQ
+- [./holocube](https://github.com/jpcurrea/magnocube/tree/main/holocube) contains the libraries for generating and projecting stimuli using 
+- [./experiments](https://github.com/jpcurrea/magnocube/tree/main/experiments) contains several example scripts for generating experimental stimuli
+- [./data_acquisition](https://github.com/jpcurrea/magnocube/tree/main/data_acquisition) has some programs in progress on reading and writing the NI DAQ
