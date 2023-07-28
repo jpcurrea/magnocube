@@ -5,14 +5,14 @@ import holocube.hc as hc
 import os
 import time
 
+hc.camera = hc.cameras.Camera(window=hc.window, camera="./revolving_fbar/2023_07_24_16_04_47.mp4")
+
 home_dir = os.getcwd()
 hc.window.start(config_file='test_viewport.config')
 hc.arduino.start('dummy')
-# hc.camera.display_start(buffer_fn="C:\\Users\\roach\\Desktop\\pablo\\arena\\_buffer.npy",
-#                         heading_fn="C:\\Users\\roach\\Desktop\\pablo\\arena\\_heading.npy")
-# hc.camera.capture_start()
-time.sleep(.5)
-# os.chdir(home_dir)
+
+hc.camera.kalman = True
+hc.camera.display_start()
 
 hc.scheduler.start(hc.window, randomize=False, default_rest_time=.1, freq=60)
 hc.scheduler.load_dir('experiments', suffix=('exp.py', 'rest.py'))

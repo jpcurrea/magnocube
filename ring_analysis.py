@@ -7,6 +7,7 @@ from pstats import SortKey
 # for general analysis
 from matplotlib import pyplot as plt
 import numpy as np
+import os
 from scipy import stats, ndimage
 import skimage
 import scipy
@@ -14,7 +15,7 @@ import sys
 # for loading and saving video files
 from skvideo import io
 # for using the FileSelector dialog
-from get_rings import *
+# from get_rings import *
 
 blue, green, yellow, orange, red, purple = [
     (0.30, 0.45, 0.69), (0.33, 0.66, 0.41), (0.83, 0.74, 0.37),
@@ -48,21 +49,21 @@ class Track():
         # get video metadata
         self.num_frames, self.height, self.width = self.video.shape
         # get center and radii from the tracked file
-        tracked_folder = os.path.join(os.path.dirname(self.filename), "tracked_data")
-        tracked_fns = os.listdir(tracked_folder)
-        breakpoint()
-        tracked_fn = [os.path.join(tracked_folder, fn) for fn in tracked_fns if self.subject in fn][0]
-        self.circle_data = np.load(tracked_fn)
-        self.center = np.array([self.circle_data['x'][0], self.circle_data['y'][0]])
-        self.small_radius, self.large_radius = self.circle_data[['radius_small', 'radius_large']][0]
-        # get ring coordinates and angles
-        self.set_rings(self.center, self.small_radius, self.large_radius)
+        # tracked_folder = os.path.join(os.path.dirname(self.filename), "tracked_data")
+        # tracked_fns = os.listdir(tracked_folder)
+        # breakpoint()
+        # tracked_fn = [os.path.join(tracked_folder, fn) for fn in tracked_fns if self.subject in fn][0]
+        # self.circle_data = np.load(tracked_fn)
+        # self.center = np.array([self.circle_data['x'][0], self.circle_data['y'][0]])
+        # self.small_radius, self.large_radius = self.circle_data[['radius_small', 'radius_large']][0]
+        # # get ring coordinates and angles
+        # self.set_rings(self.center, self.small_radius, self.large_radius)
 
     def get_background(self):
         """Get average frame of the whole video."""
         self.background = self.video.mean(-1)
 
-    def set_rings(self, center, small_radius=10, large_radius=20, padding=10):
+    def set_rings(self, center, small_radius=10, large_radius=20, thickness=3):
         """Define two rings for heading detection.
 
 
@@ -90,12 +91,12 @@ class Track():
         angles = np.arctan2(ygrid, xgrid)
         # get indices of the two ring masks
         # inner ring and angles:
-        include_inner = (dists >= small_radius - padding) * (dists <= small_radius + padding)
+        include_inner = (dists >= small_radius - thickness/2) * (dists <= small_radius + thickness/2)
         ys_inner, xs_inner = np.where(include_inner)
         self.small_ring_coords = np.array([xs_inner, ys_inner]).T
         self.small_ring_angles = angles[include_inner]
         # outer ring and angles:
-        include_outer = (dists >= large_radius - padding) * (dists <= large_radius + padding)
+        include_outer = (dists >= large_radius - thickness/2) * (dists <= large_radius + thickness/2)
         ys_outer, xs_outer = np.where(include_outer)
         self.large_ring_coords = np.array([xs_outer, ys_outer]).T
         self.large_ring_angles = angles[include_outer]
@@ -149,22 +150,33 @@ class Track():
                                            self.small_ring_coords[include][:, 0]]
                         head = (inner_vals > floor) * (inner_vals <= ceiling)
                         head_angs += [self.small_ring_angles[include][head]]
-                head_angs = np.concatenate(head_angs)
+                if len(head_angs) > 0:
+                    try:
+                        head_angs = np.concatenate(head_angs)
+                    except:
+                        breakpoint()
                 # 5. grab the head angs within those bounds
+                if np.any(np.isnan(head_angs)):
+                    breakpoint()
                 self.heading += [scipy.stats.circmean(head_angs, low=-np.pi, high=np.pi)]
             elif method == 'svd':
                 # 1. threshold the video
                 body = (frame > floor) * (frame <= ceiling)
                 breakpoint()
                 # 2. get 2D coordinates representing the fly
-                ys, xs =
+                # ys, xs =
                 # 3. get the orientation of the principle component
-            elif method == 'ellipse':
-                # 1. threshold the video
-                body = (frame > floor) * (frame <= ceiling)
-                breakpoint()
         # convert to ndarray
         self.heading = np.array(self.heading)
+        if np.any(np.isnan(self.heading)):
+            if np.isnan(self.heading).mean() > .1:
+                breakpoint()
+            # replace nans with linear interpolation
+            inds = np.arange(len(self.heading))
+            no_nans = np.isnan(self.heading) == False
+            f = scipy.interpolate.interp1d(inds[no_nans], self.heading[no_nans])
+            self.heading[no_nans == False] = f(inds[no_nans == False])
+        # check for absurdly fast movements
         self.headings[method] = self.heading
 
     def video_preview(self, vid_fn=None, relative=False, marker_size=3):
@@ -282,6 +294,7 @@ class Track():
         fig, axes = plt.subplots(ncols=2, sharey=True, sharex=True)
         time_bins = np.append([0], self.times)
         # 1. the outer ring
+        breakpoint()
         axes[0].pcolormesh(bins, time_bins, graphs[0].T)
         # axes[0].scatter(self.headings, self.times, color=red, marker='.')
         # line plot excluding steps > np.pi
@@ -326,24 +339,24 @@ if __name__ == "__main__":
     # make graphic previews
     # track.video_preview()
     # track.graph_preview()
-else:
-    fns = os.listdir("./")
-    video_fns = [fn for fn in fns if fn.endswith(".mat")]
-    tracked_fns = os.listdir("tracking_data")
-    for num, fn in enumerate(video_fns):
-        # check if there is tracking data on this video
-        base = os.path.basename(fn).split(".")[0]
-        if any([base in fn for fn in tracked_fns]):
-            # track the heading
-            try:
-                track = Track(fn)
-                track.get_heading()
-                # store the unwrapped orientations
-                new_fn = ".".join(fn.split(".")[:-1])
-                new_fn += "_tracking.npy"
-                np.save(new_fn, np.unwrap(track.heading))
-                track.video_preview()
-            except:
-                pass
-            print_progress(num + 1, len(tracked_fns))
+# else:
+#     fns = os.listdir("./")
+#     video_fns = [fn for fn in fns if fn.endswith(".mat")]
+#     tracked_fns = os.listdir("tracking_data")
+#     for num, fn in enumerate(video_fns):
+#         # check if there is tracking data on this video
+#         base = os.path.basename(fn).split(".")[0]
+#         if any([base in fn for fn in tracked_fns]):
+#             # track the heading
+#             try:
+#                 track = Track(fn)
+#                 track.get_heading()
+#                 # store the unwrapped orientations
+#                 new_fn = ".".join(fn.split(".")[:-1])
+#                 new_fn += "_tracking.npy"
+#                 np.save(new_fn, np.unwrap(track.heading))
+#                 track.video_preview()
+#             except:
+#                 pass
+#             print_progress(num + 1, len(tracked_fns))
         

@@ -3,6 +3,7 @@
 
 from numpy import *
 from numpy import resize as rsize
+import numpy as np
 import pyglet
 from pyglet.gl import *
 import scipy.stats
@@ -2092,8 +2093,7 @@ class Quad_image(Movable):
 
     def __init__(self, window, rate=120., xres=64, yres=64, fast=True,
                  dist=1., left=-pi, right=pi, bottom=-pi, top=pi, xdivs=10,
-                 ydivs=10,
-                 image=None, add=False):
+                 ydivs=1, image=None, add=False):
         super(Quad_image, self).__init__(window)
         self.gl_type = GL_QUADS
         self.num = 4 * xdivs * ydivs
@@ -2156,6 +2156,15 @@ class Quad_image(Movable):
         self.image = pyglet.image.ImageData(self.yres, self.xres, 'RGBA',
                                             self.data.tostring())
 
+    def sin_image_blue(self, cycles=5, c=1, phi_i=0.):
+        self.data[:, :, 3] = 255  # alpha channel
+        self.data[:, :, :3] = 127 + 127 * c * sin(
+            phi_i + cycles * linspace(0, self.xext, len(self.data)))[None, :,
+                                              None]
+        self.data[:, :, :2] = 0
+        self.image = pyglet.image.ImageData(self.yres, self.xres, 'RGBA',
+                                            self.data.tostring())
+
     def load_image(self, filename):
         self.image = pyglet.image.load(filename)
 
@@ -2163,7 +2172,7 @@ class Quad_image(Movable):
         '''set an image with a xres by yres by 4 data array'''
         if 'original_data' not in dir(self):
             self.original_data = data
-        self.data[:, :, :] = data
+        self.data = data
         self.image = pyglet.image.ImageData(self.yres, self.xres, 'RGBA',
                                             self.data.tostring())
 
@@ -2201,9 +2210,17 @@ class Quad_image(Movable):
             new_data = new_data.astype(float)
             blurred_channels = []
             for channel in new_data.transpose(2, 0, 1):
-                blurred_channels += [
-                    ndimage.gaussian_filter(channel, std, mode='wrap')]
-            mean_vals = np.array(blurred_channels).tranpose(1, 2, 0)
+                mean_resp = channel.mean()
+                blurred = ndimage.gaussian_filter(channel - mean_resp, std, mode='wrap') + mean_resp
+                blurred_channels += [blurred]
+            mean_vals = np.array(blurred_channels).transpose(1, 2, 0)
+            mean_vals = np.round(mean_vals).astype('uint8')
+            # adjust the contrast
+            # minimum = int(round(255 * (1 - contrast) / 2))
+            # maximum = int(round(255 - minimum))
+            minimum, maximum = self.original_data[..., :3].min(), self.original_data[..., :3].max()
+            look_up = np.zeros(256, dtype='uint8')
+            look_up[mean_vals.min():mean_vals.max()] = np.round(np.linspace(minimum, maximum, mean_vals.max() - mean_vals.min())).astype('uint8')
             # mean_vals = new_data[..., :3].mean(-1)
             # mean_vals = ndimage.gaussian_filter(
             #     mean_vals, std, mode='wrap').astype(float)
@@ -2212,21 +2229,34 @@ class Quad_image(Movable):
             # alpha = ndimage.gaussian_filter(
             #     alpha, std, mode='wrap').astype(float)
             # normalize maximum to contrast value
-            mean_vals -= mean_vals.min((0, 1))
-            mean_vals /= mean_vals.max((0, 1))
-            mean_vals -= .5
-            mean_vals *= contrast * 255
-            mean_vals += 255 / 2.
+            # mean_vals -= mean_vals.min((0, 1))
+            # mean_vals /= mean_vals.max((0, 1))
+            # mean_vals -= .5
+            # mean_vals *= contrast * 255
+            # mean_vals += 255 / 2.
             # store mean vals and alpha
-            new_data = mean_vals
+            new_data = np.copy(mean_vals)
+            new_data[..., :3] = look_up[mean_vals[..., :3]]
             # new_data[..., :3] = repeat(mean_vals[..., newaxis], 3, axis=-1)
             # new_data[..., 3] = alpha
             # convert to uint8
-            new_data = new_data.astype('uint8')
+            print(new_data)
         # make equal to mean on all channels
         self.set_image(new_data)
+
+    def set_contrast(self, contrast):
+        """Render the image at an arbitrary contrast or a list of contrasts."""
+        if contrast != 1:
+            if 'original_data' not in dir(self):
+                self.original_data = self.data
+            # todo: make a lookup table for the provided contrast
+            minimum = 255 * (1 - contrast) / 2
+            maximum = 255 - minimum
+            look_up = np.linspace(minimum, maximum, 256).astype('uint8')
+            # replace with the looked up numbers
+            new_data = look_up[self.original_data]
+            self.set_image(new_data)
 
 # todo: make a Fourier Bar stimulus, centered correctly
 # todo: make a bar stimulus, properly centered with the arena
 # todo: make a RandomGrating stimulus
-

@@ -276,7 +276,10 @@ class Holocube_window(pyglet.window.Window):
         config = configparser.ConfigParser()
         config.read(filename)
         # grab options for the whole screen
-        self.bg_color = eval(config.get('screen', 'bg_color', fallback=['[0.,0.,0.,1.]']))
+        try:
+            self.bg_color = eval(config.get('screen', 'bg_color', fallback=['[0.,0.,0.,1.]']))
+        except:
+            breakpoint()
         self.project = config.getboolean('screen', 'project', fallback=False)
         self.screen_number = config.getint('screen', 'screen_number', fallback=0)
         self.w = config.getint('screen', 'w_size', fallback=640)
@@ -665,6 +668,11 @@ class Holocube_window(pyglet.window.Window):
         glViewport(0,0,self.w, self.h)
         self.bufm.get_color_buffer().save(f'{prefix}_{self.frame:06d}.png')
         
+    def get_frame(self):
+        test = glViewport(0,0,self.w, self.h)
+        frame = self.bufm.get_color_buffer()
+        return frame
+
     def str_to_key(self, s):
         '''Change a string to an appropriate key tuple,
         one key, zero or more modifiers seperated by spaces, any order, upper or lower case 
