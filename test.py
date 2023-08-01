@@ -5,7 +5,7 @@ import holocube.hc as hc
 import os
 import time
 
-hc.camera = hc.cameras.Camera(window=hc.window, camera="./revolving_fbar/2023_07_24_16_04_47.mp4")
+hc.camera = hc.cameras.Camera(window=hc.window, camera="./test.mp4")
 
 home_dir = os.getcwd()
 hc.window.start(config_file='test_viewport.config')
