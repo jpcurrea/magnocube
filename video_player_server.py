@@ -247,6 +247,13 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.head_pin.setBrush(
             pg.mkBrush(255 * red[0], 255 * red[1], 255 * red[2], 255))
         self.view_objective.addItem(self.head_pin)
+        # the center-of-mass point
+        self.com_pin = QtWidgets.QGraphicsEllipseItem(
+            0, 0, linewidth/2, linewidth/2)
+        self.com_pin.setPen(pg.mkPen(255, 255, 255, 255, width=1))
+        self.com_pin.setBrush(
+            pg.mkBrush(255, 255, 255, 255))
+        self.view_objective.addItem(self.com_pin)
         # virtual orientation
         # self.north_pin = QtWidgets.QGraphicsEllipseItem(
         #     linewidth/4, linewidth/4, linewidth/2, linewidth/2)
@@ -399,7 +406,7 @@ class VideoGUI(QtWidgets.QMainWindow):
             self.image_objective.setImage(frame)
             self.image_relative.setImage(frame)
 
-    def update_heading(self, headings=None, headings_smooth=None, com=None):
+    def update_heading(self, headings=None, headings_smooth=None, com_shift=None):
         """Update the plotted heading point and line."""
         if headings is None:
             headings = np.array([self.heading])
@@ -434,10 +441,13 @@ class VideoGUI(QtWidgets.QMainWindow):
                 self.head_line.setPen(self.head_pen)
             # center the objective image around (0, 0)
             transform = QtGui.QTransform()
-            if com is None:
-                transform.translate(-self.img_height/2 - self.border_pad, -self.img_width/2 - self.border_pad)
-            else:
-                transform.translate(-com[0] - self.border_pad, -com[1] - self.border_pad)
+            dy, dx = -self.img_height/2 - self.border_pad, -self.img_width/2 - self.border_pad
+            if com_shift is not None:
+                # todo: move the center of mass dot
+                com_transform = QtGui.QTransform()
+                com_transform.translate(com_shift[0], com_shift[1])
+                self.com_pin.setTransform(com_transform)
+            transform.translate(dx, dy)
             # transform.translate(-self.img_height/2, -self.img_width/2)
             self.image_objective.setTransform(transform)
             # update position of head pin based on the heading and inner radius
@@ -449,7 +459,11 @@ class VideoGUI(QtWidgets.QMainWindow):
             # and rotate the relative image by the heading angle
             transform = QtGui.QTransform()
             transform.rotate(-heading * 180 / np.pi + 90)
-            transform.translate(-self.img_height/2 - self.border_pad, -self.img_width/2 - self.border_pad)
+            dx, dy = -self.img_height/2 - self.border_pad, -self.img_width/2 - self.border_pad
+            if com_shift is not None:
+                dx -= com_shift[0]
+                dy -= com_shift[1]
+            transform.translate(dx, dy)
             self.image_relative.setTransform(transform)
             # plot the headings data in reverse order
             for num, vals in enumerate([headings, headings_smooth]):
@@ -551,14 +565,14 @@ class FrameUpdater():
         data = pickle.loads(buffer)
         # extract the new frame and the headings data
         img = data['img']
-        headings, headings_smooth, com = data['headings'], data['headings_smooth'], data['com']
+        headings, headings_smooth, com_shift = data['headings'], data['headings_smooth'], data['com_shift']
         # update the frame and heading
         self.gui.update_frame(img)
         if headings_smooth == []:
             headings_smooth = None
         if headings_smooth is not None:
             headings_smooth = np.array(headings_smooth)
-        self.gui.update_heading(np.array(headings), headings_smooth, com)
+        self.gui.update_heading(np.array(headings), headings_smooth, com_shift)
 
 
 if __name__ == "__main__":

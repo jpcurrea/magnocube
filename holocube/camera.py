@@ -460,6 +460,7 @@ class Camera():
         """
         # import the camera and setup the GenICam nodemap for PySpin
         self.com_correction = com_correction
+        self.com_shift = None
         self.kalman = kalman
         self.camera = camera
         self.window = window
@@ -795,7 +796,7 @@ class Camera():
         if self.video_player.poll() is None:
             self.video_player.kill()
 
-    def display(self, framerate=30.):
+    def display(self, framerate=480.):
         """Save frame and heading for video_player_server.py to display."""
         # note: there were problems due to stray threads continuously running
         interval = 1/framerate
@@ -826,13 +827,13 @@ class Camera():
                 # todo: fix min_width to make the final border dimensions correctly
                 img[offset:offset + self.height, offset:offset + self.height] = frame_cropped[..., np.newaxis]
                 frame_cropped = img
-            self.update_display(frame_cropped, self.headings, self.headings_smooth, com=self.com)
+            self.update_display(frame_cropped, self.headings, self.headings_smooth, self.com_shift)
             # np.save(self.buffer_fn, frame_cropped)
             time.sleep(interval)
 
-    def update_display(self, img, headings, headings_smooth=None, com=None):
+    def update_display(self, img, headings, headings_smooth=None, com_shift=None):
         """Send images and heading data to the video server using stdin.PIPE."""
-        data = {'img': img, 'headings': headings, 'headings_smooth': headings_smooth, 'com': com}
+        data = {'img': img, 'headings': headings, 'headings_smooth': headings_smooth, 'com_shift': com_shift}
         data_bytes = pickle.dumps(data)
         self.video_player.stdin.flush()
         # first, send the length of the data_bytes for safe reading
@@ -939,10 +940,11 @@ class Camera():
             # inner_angs = np.copy(self.inner_angs)
             # frame = np.copy(self.frame)
             thresh, invert = self.thresh, self.invert
-            # outer_inds, outer_angs = np.where(self.outer_inds), self.outer_angs
-            # inner_inds, inner_angs = np.where(self.inner_inds), self.inner_angs
-            outer_inds, outer_angs = self.outer_inds, self.outer_angs
-            inner_inds, inner_angs = self.inner_inds, self.inner_angs
+            # todo: use index numbers instead of a boolean array, because it's faster to translate
+            outer_inds, outer_angs = np.where(self.outer_inds), self.outer_angs
+            inner_inds, inner_angs = np.where(self.inner_inds), self.inner_angs
+            # outer_inds, outer_angs = self.outer_inds, self.outer_angs
+            # inner_inds, inner_angs = self.inner_inds, self.inner_angs
             frame = self.frame
             # 1. get outer ring, which should include just the tail
             if frame.ndim == 1:
@@ -950,21 +952,19 @@ class Camera():
             elif frame.ndim > 2:
                 frame = frame[..., 0]
             # todo: adjust inner and outer inds using the center of mass
-            # if self.com_correction:
-            #     outer_vals = np.where(outer_inds)
-            #     inner_vals = np.where(outer_inds)
-            #     if invert:
-            #         frame_mask = frame < thresh
-            #     else:
-            #         frame_mask = frame > thresh
-            #     # account for shifts in the center of mass
-            #     self.com = scipy.ndimage.measurements.center_of_mass(frame_mask)
-            #     diff = np.array([self.height/2, self.width/2]) - np.array(self.com)
-            #     outer_inds += np.round(diff).astype(int)[:, np.newaxis]
-            #     inner_inds += np.round(diff).astype(int)[:, np.newaxis]
+            if self.com_correction:
+                if invert:
+                    frame_mask = frame < thresh
+                else:
+                    frame_mask = frame > thresh
+                # account for shifts in the center of mass
+                com = scipy.ndimage.measurements.center_of_mass(frame_mask)
+                diff = np.array(com) - np.array([self.height/2, self.width/2])
+                # outer_inds += np.round(diff).astype(int)[:, np.newaxis]
+                # inner_inds += np.round(diff).astype(int)[:, np.newaxis]
             # use the new adjusted outer and inner inds
-            self.com = None
-            outer_ring = frame[outer_inds]
+            # self.com = None
+            outer_ring = frame[outer_inds[0], outer_inds[1]]
             heading = np.nan
             if self.flipped:
                 # 2. if fly is forward leaning, then the head is in the outer ring
@@ -985,10 +985,7 @@ class Camera():
                 else:
                     tail = outer_ring > thresh
                 if len(outer_angs) == len(tail):
-                    try:
-                        tail_angs = outer_angs[tail]
-                    except:
-                        breakpoint()
+                    tail_angs = outer_angs[tail]
                     tail_dir = scipy.stats.circmean(tail_angs.flatten(), low=-np.pi, high=np.pi)
                     # the head direction is the polar opposite of the tail
                     head_dir = tail_dir + np.pi
@@ -1013,15 +1010,22 @@ class Camera():
                     for lower, upper in zip(lower_bounds, upper_bounds):
                         include += (inner_angs > lower) * (inner_angs < upper)
                     if np.any(include):
-                        if inner_inds.sum() == len(include):
-                            inner_vals = frame[inner_inds][include]
-                            if self.invert:
-                                head = inner_vals < thresh
-                            else:
-                                head = inner_vals > thresh
-                            heading = scipy.stats.circmean(
-                                inner_angs[include][head],
-                                low=-np.pi, high=np.pi)
+                        inner_vals = frame[inner_inds[0], inner_inds[1]][include]
+                        if self.invert:
+                            head = inner_vals < thresh
+                        else:
+                            head = inner_vals > thresh
+                        heading = scipy.stats.circmean(
+                            inner_angs[include][head],
+                            low=-np.pi, high=np.pi)
+            if self.com_correction:
+                # convert from heading angle to head position
+                heading_pos = self.inner_r * np.array([np.sin(heading), np.cos(heading)])
+                # calculate direction vector between the center of the fly and the head
+                direction = heading_pos - diff
+                heading = np.arctan2(direction[0], direction[1])
+                # store the shift in the center of mass for plotting
+                self.com_shift = np.round(-diff).astype(int)
             # center and wrap the heading
             heading -= np.pi/2
             if heading < -np.pi:
