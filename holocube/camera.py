@@ -707,7 +707,9 @@ class Camera():
             self.save_fn = save_fn
             if capture_online:
                 input_dict = {'-r': str(round(self.framerate)), '-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
-                output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
+                # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
+                # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'p7', '-vf':'hue=s=0'}
+                output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'lossless', '-vf':'hue=s=0'}
                 self.video_writer = io.FFmpegWriter(save_fn, inputdict=input_dict, outputdict=output_dict)
                 self.storing_thread = threading.Thread(target=self.store_frames)
                 self.storing_thread.start()
