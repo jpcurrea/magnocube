@@ -70,10 +70,14 @@ fns = os.listdir("./experiments/natural_images")
 fns = [os.path.join('experiments', 'natural_images', fn) for fn in fns]
 fns = [os.path.abspath(fn) for fn in fns]
 fns = [fn for fn in fns if fn.endswith('.jpg')]
+# use just one of the images
+fns = fns[1:2]
 imgs = [load_image(fn) for fn in fns]
 sigmas = np.append(0, np.logspace(0, 2, 9)[:5]) # results in 6 sigmas = 6 * 3 = 18 tests
 backgrounds = []
 for img in imgs:
+    # flip the image horizontally
+    img = img[:, ::-1]
     # upsample to the nearest power of 2
     order = math.ceil(np.log2(img.shape[1]))
     new_width = 2**order

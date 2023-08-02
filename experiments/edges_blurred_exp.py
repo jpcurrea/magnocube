@@ -46,8 +46,8 @@ def timestamp():
     return now.strftime("%Y_%m_%d_%H_%M_%S")
 
 FOLDER = os.path.abspath("./edges blurred")
-DURATION = int(3)    # seconds
-BLUR_VALS = 6
+DURATION = int(10)    # seconds
+BLUR_VALS = 3
 # DURATION = 15
 # DURATION = 5   # seconds
 if not os.path.exists(FOLDER):
@@ -62,28 +62,30 @@ tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
 tracker.add_virtual_object(name='bg', motion_gain=-1,
                            start_angle=hc.camera.update_heading, object=True)
 
-# load the images
-fns = os.listdir("./experiments/natural_images")
-fns = [os.path.join('experiments', 'natural_images', fn) for fn in fns]
-fns = [os.path.abspath(fn) for fn in fns]
-fns = [fn for fn in fns if fn.endswith('.jpg')]
-imgs = [load_image(fn) for fn in fns]
 res = 2**10
 yres = res
 # sigmas = np.append(0, np.logspace(1, 2, BLUR_VALS - 1))
 sigmas = np.round(np.linspace(0, 200, BLUR_VALS)).astype(int)
+sigmas = [1, 10, 100]
 backgrounds = []
-img = np.zeros((yres, res, 4), dtype='uint8')
-img[:] = np.linspace(0, 255, res, dtype='uint8')[np.newaxis, :, np.newaxis]
-img[..., -1] = 255
+# downscale to 5 bit (2**5=16)
+# img = img // 8
 for order in [1, -1]:
+    img = np.zeros((yres, res, 4), dtype='uint8')
+    if order == 1:
+        img[:] = np.linspace(0, 255, res, dtype='uint8')[np.newaxis, :, np.newaxis]        
+    else:
+        img[:] = np.linspace(255, 0, res, dtype='uint8')[np.newaxis, :, np.newaxis]
+    img[..., -1] = 255
+    # use only the blue channel
+    img[:, :, :2] = 0
     cyl = hc.stim.Quad_image(hc.window, left=0, right=2*np.pi, bottom=-.2*pi,
                             top=.2*pi, xres=res, yres=yres, xdivs=64, ydivs=1)
-    cyl.set_image(img[::order])
+    cyl.set_image(img)
     backgrounds += [cyl]
 
 # get the 8 key positions
-orientations = np.arange(0, 8) * np.pi/4
+# orientations = np.arange(0, 8) * np.pi/4
 
 
 # define test parameters
@@ -93,7 +95,7 @@ exp_starts = [[hc.window.set_far, 3],
               [hc.camera.storing_start, -1, FOLDER, None, True],
               [tracker.store_camera_settings],
               [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1, hc.camera.update_heading],
-              [tracker.virtual_objects['bg'].set_motion_parameters, 0, hc.camera.update_heading],
+              [tracker.virtual_objects['bg'].set_motion_parameters, -1, hc.camera.update_heading],
               [hc.camera.clear_headings],
               [tracker.add_exp_attr, 'video_fn', hc.camera.get_save_fn],
               [tracker.add_exp_attr, 'experiment', os.path.basename(FOLDER)],
@@ -107,33 +109,38 @@ exp_ends = [[hc.window.set_far,     1],
             ]
 hc.scheduler.add_exp(name=os.path.basename(FOLDER), starts=exp_starts, ends=exp_ends)
 
+orientation = -np.pi
+
 bar_gain = 0
 tracker.start_time = time.time()
 # first, let's add the experiments with a background
-for bg, fn in zip(backgrounds, fns):
-    for orientation in orientations:
-        for sigma in sigmas:
-            starts = [
-                [bg.switch, True],
-                [bg.blur_image, sigma],
-                [bg.set_ry, orientation],
-                [hc.camera.import_config],
-                [hc.camera.clear_headings],
-                [hc.window.record_start],
-                [print, f"fn={fn}"],
-                [set_attr_func, tracker, 'start_time', time.time]
-            ]
-            middles = [
-                [hc.camera.get_background, hc.window.get_frame],
-                [tracker.update_objects, hc.camera.update_heading],
-                [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
-                [hc.window.record_frame]
-            ]
-            ends = [
-                [bg.switch, False],
-                [tracker.reset_virtual_object_motion],
-                [tracker.add_test_data, hc.window.record_stop,
-                    {'img_fn': fn, 'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time, 'sigma': sigma}, True],
-                [hc.window.reset_rot],
-            ]
-            hc.scheduler.add_test(num_frames, starts, middles, ends)
+for bg, contrast_polarity in zip(backgrounds,[1, -1]):
+    for sigma in sigmas:
+        starts = [
+            [bg.switch, True],
+            [bg.blur_image, sigma],
+            [tracker.virtual_objects['bg'].add_motion, [orientation]],
+            [hc.camera.import_config],
+            [hc.camera.clear_headings],
+            [hc.window.record_start],
+            [print, f"sigma={sigma:.2f}, polarity={contrast_polarity}"],
+            [set_attr_func, tracker, 'start_time', time.time]
+        ]
+        middles = [
+            [hc.camera.get_background, hc.window.get_frame],
+            [tracker.update_objects, hc.camera.update_heading],
+            [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
+            [hc.window.record_frame]
+        ]
+        ends = [
+            [bg.switch, False],
+            [tracker.reset_virtual_object_motion],
+            [tracker.add_test_data, hc.window.record_stop,
+                {'start_test': getattr(tracker, 'start_time'), 
+                 'stop_test': time.time, 
+                 'sigma': sigma, 
+                 'bg_orientation': tracker.virtual_objects['bg'].get_angles,
+                 'contrast_polarity': contrast_polarity}, True],
+            [hc.window.reset_rot],
+        ]
+        hc.scheduler.add_test(num_frames, starts, middles, ends)

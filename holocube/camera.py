@@ -437,7 +437,7 @@ class KalmanAngle(Kalman_Filter):
 class Camera():
     def __init__(self, camera=cam_list[0], invert_rotations=True, kalman=True,
                  window=None, plot_stimulus=True, config_fn='video_player.config',
-                 video_player_fn='video_player_server.py', com_correction=False):
+                 video_player_fn='video_player_server.py', com_correction=True):
         """Read from a BlackFly Camera via USB allowing GPIO triggers.
 
 
@@ -708,9 +708,9 @@ class Camera():
             self.save_fn = save_fn
             if capture_online:
                 input_dict = {'-r': str(round(self.framerate)), '-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
-                # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
+                output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
                 # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'p7', '-vf':'hue=s=0'}
-                output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'lossless', '-vf':'hue=s=0'}
+                # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'lossless', '-vf':'hue=s=0'}
                 self.video_writer = io.FFmpegWriter(save_fn, inputdict=input_dict, outputdict=output_dict)
                 self.storing_thread = threading.Thread(target=self.store_frames)
                 self.storing_thread.start()
@@ -1023,9 +1023,12 @@ class Camera():
                 heading_pos = self.inner_r * np.array([np.sin(heading), np.cos(heading)])
                 # calculate direction vector between the center of the fly and the head
                 direction = heading_pos - diff
-                heading = np.arctan2(direction[0], direction[1])
-                # store the shift in the center of mass for plotting
-                self.com_shift = np.round(-diff).astype(int)
+                if not np.any(np.isnan(direction)):
+                    heading = np.arctan2(direction[0], direction[1])
+                    # store the shift in the center of mass for plotting
+                    self.com_shift = np.round(-diff).astype(int)
+                else:
+                    self.com_shift = np.zeros(2)
             # center and wrap the heading
             heading -= np.pi/2
             if heading < -np.pi:

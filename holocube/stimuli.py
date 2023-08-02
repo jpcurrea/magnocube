@@ -2240,7 +2240,7 @@ class Quad_image(Movable):
             # new_data[..., :3] = repeat(mean_vals[..., newaxis], 3, axis=-1)
             # new_data[..., 3] = alpha
             # convert to uint8
-            print(new_data)
+            # print(new_data)
         # make equal to mean on all channels
         self.set_image(new_data)
 
