@@ -405,7 +405,7 @@ class VideoGUI(QtWidgets.QMainWindow):
         else:
             self.image_objective.setImage(frame)
             self.image_relative.setImage(frame)
-
+        
     def update_heading(self, headings=None, headings_smooth=None, com_shift=None):
         """Update the plotted heading point and line."""
         if headings is None:

@@ -437,7 +437,8 @@ class KalmanAngle(Kalman_Filter):
 class Camera():
     def __init__(self, camera=cam_list[0], invert_rotations=True, kalman=True,
                  window=None, plot_stimulus=True, config_fn='video_player.config',
-                 video_player_fn='video_player_server.py', com_correction=False):
+                 video_player_fn='video_player_server.py', com_correction=False,
+                 saccade_trigger=True, acceleration_thresh=500):
         """Read from a BlackFly Camera via USB allowing GPIO triggers.
 
 
@@ -457,8 +458,20 @@ class Camera():
             Whether to add the stimulus to the border of the display.
         config_fn : str, default='video_player.config'
             Path to the config file used for configuring the video display.
+        video_player_fn : str, default='video_player_server.py'
+            Path to the video player server file.
+        com_correction : bool, default=False
+            Whether to apply a correction to the heading based on the center of
+            mass of the stimulus.
+        saccade_trigger : bool, default=True
+            Whether to use the saccade trigger to start and stop recording.
+        acceleration_thresh : float, default=1
+            The threshold acceleration for detecting saccades.
         """
         # import the camera and setup the GenICam nodemap for PySpin
+        self.saccade_trigger = saccade_trigger
+        self.acceleration_thresh = acceleration_thresh
+        self.is_saccading = False
         self.com_correction = com_correction
         self.com_shift = None
         self.kalman = kalman
@@ -1032,6 +1045,17 @@ class Camera():
             self.heading = copy.copy(heading)
             self.headings += [self.heading]
             if self.kalman:
+                # if self.is_saccading:
+                #     # if saccading, then use the normal heading
+                #     self.heading_smooth = heading
+                #     self.headings_smooth += [self.heading_smooth]
+                #     # check if still saccading
+                #     acceleration = abs(np.diff(np.diff(self.headings_smooth[-4:-1])))
+                #     acceleration *= self.framerate**2
+                #     if (self.frame_num - self.saccade_frame > 3) and (acceleration < .1*self.acceleration_thresh):
+                #         self.is_saccading = False
+                #         self.kalman_setup()
+                # else:
                 # use kalman filter, only if heading is not np.nan
                 if not np.isnan(heading):
                     # apply the kalman filter to the headings and output both the 
@@ -1039,10 +1063,33 @@ class Camera():
                 self.heading_smooth = self.kalman_filter.predict()
                 if self.heading_smooth is np.nan:
                     self.kalman_setup()
-                self.headings_smooth += [self.heading_smooth]
-                return self.heading_smooth
-            else:
-                return heading
+                # check if acceleration is above a threshold
+                if self.frame_num > 5:
+                    acceleration = abs(np.diff(np.diff(self.kalman_filter.record[-4:-1])))
+                    acceleration *= self.framerate**2
+                    # print(acceleration)
+                    # if sacccading, then check if the acceleration is below a threshold and switch
+                    if self.is_saccading:
+                        heading = heading
+                        self.headings_smooth += [heading]
+                        if (acceleration < .1*self.acceleration_thresh) and (self.frame_num - self.saccade_frame > 10):
+                            self.is_saccading = False
+                            self.kalman_setup()
+                    # when not saccading, check if the acceleration is above a threshold and switch
+                    else:
+                        heading = self.heading_smooth
+                        self.headings_smooth += [self.heading_smooth]
+                        if acceleration > self.acceleration_thresh:
+                            if 'saccade_num' not in dir(self):
+                                self.saccade_num = 0
+                            self.saccade_num += 1
+                            self.is_saccading = True
+                            self.saccade_frame = np.copy(self.frame_num)
+                            # print(f'saccade # {self.saccade_num}, frame {self.frame_num}')
+                            heading = self.heading_smooth
+                else:
+                    self.headings_smooth += [heading]
+            return heading
         else:
             self.heading = 0
             return self.heading
