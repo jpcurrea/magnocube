@@ -437,7 +437,7 @@ class KalmanAngle(Kalman_Filter):
 class Camera():
     def __init__(self, camera=cam_list[0], invert_rotations=True, kalman=True,
                  window=None, plot_stimulus=True, config_fn='video_player.config',
-                 video_player_fn='video_player_server.py', com_correction=False,
+                 video_player_fn='video_player_server.py', com_correction=True,
                  saccade_trigger=True, acceleration_thresh=500):
         """Read from a BlackFly Camera via USB allowing GPIO triggers.
 
@@ -469,6 +469,7 @@ class Camera():
             The threshold acceleration for detecting saccades.
         """
         # import the camera and setup the GenICam nodemap for PySpin
+        self.frame_num = 0
         self.saccade_trigger = saccade_trigger
         self.acceleration_thresh = acceleration_thresh
         self.is_saccading = False
@@ -936,6 +937,9 @@ class Camera():
                 noise_changed = self.kalman_filter.measurement_noise_x != self.kalman_noise
                 if std_changed or noise_changed:
                     self.kalman_setup()
+        # import user-chosen experiment too
+        if "experiment_parameters" in info.keys():
+            self.exp_params = info['experiment_parameters']
 
     def update_heading(self, absolute=False):
         if self.playing:
@@ -1118,7 +1122,7 @@ class Camera():
 
 
 class TrackingTrial():
-    def __init__(self, camera, window, dirname, kalman=False):
+    def __init__(self, camera, window, dirname, kalman=False, gui_config_fn="video_server.config"):
         """Store the relevant variables into an h5 dataset.
 
         This object should help to connect the 1) the camera settings, like
@@ -1138,7 +1142,11 @@ class TrackingTrial():
             Path to the directory where to store the dataset.
         kalman : bool, default=False
             Whether to apply a Kalman filter to the processed heading.
+        gui_config_fn : str, default="video_server.config"
+            Filename of the config file for the GUI. This is used to
+            save experimental parameters selected by the user.
         """
+        self.config_fn = os.path.abspath(gui_config_fn)
         self.camera = camera
         self.window = window
         self.dirname = dirname
@@ -1186,6 +1194,11 @@ class TrackingTrial():
             for key, dtype in zip(['thresh', 'inner_r', 'outer_r', 'invert'],
                                 [int, float, float, bool]):
                 self.h5_file.attrs[key] = dtype(self.camera.vid_params[key])
+            # store the experiment parameters saved in video_server.config
+            if "exp_params" in dir(self.camera):
+                for key, val in self.camera.exp_params.items():
+                    self.h5_file.attrs[key] = val
+
 
     def set_test_params(self, params):
         """Set the list of parameter keys to store per test.

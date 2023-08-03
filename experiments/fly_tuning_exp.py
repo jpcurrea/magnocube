@@ -9,13 +9,13 @@ num_frames = np.inf
 # num_frames = 1200
 
 # make a dot field
-pts = hc.stim.Points(hc.window, 10000, dims=[(-20, 20), (-5, 5), (-5, 5)], color=1, pt_size=4)
+pts = hc.stim.Points(hc.window, 1000, dims=[(-5, 5), (-5, 5), (-5, 5)], color=1, pt_size=4)
 
 orig_bg = hc.window.bg_color
 # experiment: add this experiment to the scheduler
 DATA_FOLDER = "./"
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=DATA_FOLDER)
-exp_starts = [[hc.window.set_far, 1.5],
+exp_starts = [[hc.window.set_far, 5],
               [hc.window.set_bg, [0., 0., 0., 1.]],
               [tracker.h5_setup],
               [tracker.store_camera_settings],

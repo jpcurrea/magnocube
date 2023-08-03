@@ -68,6 +68,7 @@ class VideoGUI(QtWidgets.QMainWindow):
                  thresholding=True, config_fn="video_player.config", border_pad=0):
         self.display_rate = display_rate
         self.config_fn = config_fn
+        self.experiment_parameters = {}
         # grab parameters
         self.img_height, self.img_width = img_height, img_width
         self.border_pad = border_pad
@@ -364,12 +365,21 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.flip_check.setStyleSheet("color: white")
         self.flip_check.toggled.connect(self.save_vars)
         self.buttons_layout.addWidget(self.flip_check, 1)
+        # add an input box for each experiment parameter in the config file
+        for param in config["experiment_parameter_options"]:
+            combobox = QtWidgets.QComboBox()
+            vals = [val for val in config['experiment_parameter_options'][param].split(',')]
+            combobox.addItems(vals)
+            combobox.setStyleSheet("color: white; background-color: black")
+            combobox.currentIndexChanged.connect(self.save_vars)
+            self.experiment_parameters[param] = combobox
+            self.buttons_layout.addWidget(combobox, 1)
         # add a sex input box
-        self.sex_selector = QtWidgets.QComboBox()
-        self.sex_selector.addItems(['female', 'male'])
-        self.sex_selector.setStyleSheet("color: white; background-color: black")
-        self.sex = self.sex_selector.currentText()
-        self.buttons_layout.addWidget(self.sex_selector, 1)
+        # self.sex_selector = QtWidgets.QComboBox()
+        # self.sex_selector.addItems(['female', 'male'])
+        # self.sex_selector.setStyleSheet("color: white; background-color: black")
+        # self.sex = self.sex_selector.currentText()
+        # self.buttons_layout.addWidget(self.sex_selector, 1)
         # add a genotype input box
         # self.genotype_selector = QtWidgets.QComboBox()
         # genotype_list = json.loads(config.get("experiment_parameters","genotype"))
@@ -498,10 +508,13 @@ class VideoGUI(QtWidgets.QMainWindow):
         if 'invert_check' in dir(self):
             config.set('video_parameters', 'invert',
                     str(self.invert_check.isChecked()))
-        if 'sex' in dir(self):
-            config.set('experiment_parameters', 'sex', self.sex)
-        if 'genotype' in dir(self):
-            config.set('experiment_parameters', 'genotype', self.genotype)
+        # save experiment parameter options
+        for key, val in self.experiment_parameters.items():
+            config.set('experiment_parameters', key, val.currentText())
+        # if 'sex' in dir(self):
+        #     config.set('experiment_parameters', 'sex', self.sex)
+        # if 'genotype' in dir(self):
+        #     config.set('experiment_parameters', 'genotype', self.genotype)
         # set the kalman settings
         for var, val in zip(['kalman_jerk_std', 'kalman_noise'], ['kalman_jerk_std_box', 'kalman_noise_box']):
             if val in dir(self):
