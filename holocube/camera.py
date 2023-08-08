@@ -438,7 +438,7 @@ class Camera():
     def __init__(self, camera=cam_list[0], invert_rotations=True, kalman=True,
                  window=None, plot_stimulus=True, config_fn='video_player.config',
                  video_player_fn='video_player_server.py', com_correction=True,
-                 saccade_trigger=True, acceleration_thresh=500):
+                 saccade_trigger=True, acceleration_thresh=300):
         """Read from a BlackFly Camera via USB allowing GPIO triggers.
 
 
@@ -472,6 +472,7 @@ class Camera():
         self.frame_num = 0
         self.saccade_trigger = saccade_trigger
         self.acceleration_thresh = acceleration_thresh
+        self.speed_thresh = 0
         self.is_saccading = False
         self.com_correction = com_correction
         self.com_shift = None
@@ -675,6 +676,7 @@ class Camera():
             self.update_heading()
             if self.frame_num > self.num_frames:
                 self.clear_headings()
+                self.reset_display()
                 self.video = io.FFmpegReader(self.dummy_fn)
                 self.frame_num = 0
             self.frame_num += 1
@@ -797,9 +799,9 @@ class Camera():
         # use a thread to update the frame and heading
         self.update_heading()
         if self.kalman:
-            self.update_display(self.frame, self.headings, self.headings_smooth)
+            self.signal_display(img=self.frame, heading=self.headings[-1], heading_smooth=self.headings_smooth[-1])
         else:
-            self.update_display(self.frame, self.headings)
+            self.signal_display(img=self.frame, heading=self.headings[-1])
         self.frame_updater = threading.Thread(
             target=self.display)
         self.frame_updater.start()
@@ -841,14 +843,13 @@ class Camera():
                 # todo: fix min_width to make the final border dimensions correctly
                 img[offset:offset + self.height, offset:offset + self.height] = frame_cropped[..., np.newaxis]
                 frame_cropped = img
-            self.update_display(frame_cropped, self.headings, self.headings_smooth, self.com_shift)
+            self.signal_display(img=frame_cropped, heading=self.headings[-1], heading_smooth=self.heading_smooth, com_shift=self.com_shift)
             # np.save(self.buffer_fn, frame_cropped)
             time.sleep(interval)
 
-    def update_display(self, img, headings, headings_smooth=None, com_shift=None):
-        """Send images and heading data to the video server using stdin.PIPE."""
-        data = {'img': img, 'headings': headings, 'headings_smooth': headings_smooth, 'com_shift': com_shift}
-        data_bytes = pickle.dumps(data)
+    def signal_display(self, **signal):
+        """Use PIPE to send data to the video server."""
+        data_bytes = pickle.dumps(signal)
         self.video_player.stdin.flush()
         # first, send the length of the data_bytes for safe reading
         length_prefix = struct.pack('I', len(data_bytes))
@@ -856,7 +857,20 @@ class Camera():
         # then, send the data
         self.video_player.stdin.write(data_bytes)
         self.video_player.stdin.flush()
-        # self.video_player.communicate(input=data_bytes)
+
+    # def update_display(self, img, headings, headings_smooth=None, com_shift=None):
+    #     """Send images and heading data to the video server using stdin.PIPE."""
+    #     data = {'img': img, 'headings': headings, 'headings_smooth': headings_smooth, 'com_shift': com_shift}
+    #     self.signal_display(data)
+
+    def reset_display(self):
+        """Clear the plotted data and plots.
+
+        By default, PIPEing trial data to the server will append it to a list 
+        for each parameter. This function instructs the server to clear these
+        lists.
+        """
+        self.signal_display({'reset': True})
 
     def get_background(self, img):
         if callable(img):
@@ -1070,25 +1084,29 @@ class Camera():
                     # apply the kalman filter to the headings and output both the 
                     self.kalman_filter.store(heading)
                 self.heading_smooth = self.kalman_filter.predict()
-                if self.heading_smooth is np.nan:
-                    self.kalman_setup()
+                # if self.heading_smooth is np.nan:
+                #     self.kalman_setup()
                 # check if acceleration is above a threshold
                 if self.frame_num > 5:
-                    acceleration = abs(np.diff(np.diff(self.kalman_filter.record[-4:-1])))
+                    speed = abs(np.diff(self.kalman_filter.record[-4:-1]))
+                    acceleration = abs(np.diff(speed))
                     acceleration *= self.framerate**2
-                    # print(acceleration)
+                    speed = np.nanmean(speed)
+                    print(speed)
                     # if sacccading, then check if the acceleration is below a threshold and switch
                     if self.is_saccading:
-                        heading = heading
                         self.headings_smooth += [heading]
-                        if (acceleration < .1*self.acceleration_thresh) and (self.frame_num - self.saccade_frame > 10):
+                        if (speed < .1*self.speed_thresh) and (self.frame_num - self.saccade_frame > 10):
                             self.is_saccading = False
                             self.kalman_setup()
+                        elif speed > self.speed_thresh:
+                            self.speed_thresh = speed
                     # when not saccading, check if the acceleration is above a threshold and switch
                     else:
                         heading = self.heading_smooth
                         self.headings_smooth += [self.heading_smooth]
                         if acceleration > self.acceleration_thresh:
+                            self.speed_thresh = speed
                             if 'saccade_num' not in dir(self):
                                 self.saccade_num = 0
                             self.saccade_num += 1

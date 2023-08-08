@@ -69,6 +69,11 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.display_rate = display_rate
         self.config_fn = config_fn
         self.experiment_parameters = {}
+        self.data = {}
+        params = ['heading', 'heading_smooth', 'com_shift']
+        for param in params:
+            self.__setattr__(param, None)
+            self.data[param] = []
         # grab parameters
         self.img_height, self.img_width = img_height, img_width
         self.border_pad = border_pad
@@ -113,7 +118,6 @@ class VideoGUI(QtWidgets.QMainWindow):
         #     self.img_width = h
         #     self.img_height = w
         self.heading = 0
-        self.north = 0
 
     def setup(self, linewidth=10):
         # create an empty widget
@@ -255,14 +259,6 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.com_pin.setBrush(
             pg.mkBrush(255, 255, 255, 255))
         self.view_objective.addItem(self.com_pin)
-        # virtual orientation
-        # self.north_pin = QtWidgets.QGraphicsEllipseItem(
-        #     linewidth/4, linewidth/4, linewidth/2, linewidth/2)
-        # self.north_pin.setPen(
-        #     pg.mkPen(255, 255, 255, 255, width=1))
-        # self.north_pin.setBrush(
-        #     pg.mkBrush(255, 255, 255, 255))
-        # self.view_objective.addItem(self.north_pin)
 
     def setup_sliders(self):
         ## Ring Detector Options ##
@@ -291,8 +287,7 @@ class VideoGUI(QtWidgets.QMainWindow):
             slider.setLabelValue(value=value, abs_value=abs_value)
             ring.setRect(self.center_x - slider.x, self.center_y - slider.x,
                          2 * slider.x, 2 * slider.x)
-            self.update_heading()
-            # self.update_north()
+            self.update_plots()
             self.save_vars()
         self.inner_slider.slider.valueChanged.connect(
             partial(update_val, slider=self.inner_slider, ring=self.inner_ring))
@@ -416,33 +411,50 @@ class VideoGUI(QtWidgets.QMainWindow):
             self.image_objective.setImage(frame)
             self.image_relative.setImage(frame)
         
-    def update_heading(self, headings=None, headings_smooth=None, com_shift=None):
-        """Update the plotted heading point and line."""
-        if headings is None:
-            headings = np.array([self.heading])
-        if headings_smooth is None:
-            headings_smooth = np.array([self.heading])
-        use_smooth_headings = False
-        if len(headings_smooth) > 0:
-            if headings_smooth[-1] is not np.nan:
-                use_smooth_headings = True
-        if use_smooth_headings:
-            heading = headings_smooth[-1]
-        elif len(headings) > 0:
-            heading = headings[-1]
-        else:
-            heading = 0
-        if np.isnan(heading):
-            heading = 0
-        # flip to match the camera and projector coordinates
-        # heading *= -1
-        heading = np.pi - heading
-        headings = np.pi - headings
-        headings_smooth = np.pi - headings_smooth
-        self.heading = heading
+    def update_data(self, **data):
+        """Update the data used for plotting."""
+        for key, val in data.items():
+            if key != 'img':
+                # make special changes to the heading data
+                if key in ['heading', 'heading_smooth']:
+                    val = np.pi - val
+                # store as an attribute
+                self.__setattr__(key, val)
+                if key in self.data.keys():
+                    self.data[key] += [val]
+                else:
+                    self.data[key] = [val]
+
+    def update_plots(self):
+        """Update the plotted data."""
+        # if heading_smooth is None:
+        #     heading_smooth = heading
+        # # use smooth headings unless they are nans
+        # use_smooth_headings = False
+        # if len(headings_smooth) > 0:
+        #     if headings_smooth[-1] is not np.nan:
+        #         use_smooth_headings = True
+        # # add to the stored data
+        # if use_smooth_headings:
+        #     heading = heading_smooth
+        # elif len(headings) > 0:
+        #     heading = headings[-1]
+        # else:
+        #     heading = 0
+        # if np.isnan(heading):
+        #     heading = 0
+        # # combine with the stored data
+        # self.headings += [heading]
+
+        # # flip to match the camera and projector coordinates
+        # # heading *= -1
+        # heading = np.pi - heading
+        # headings = np.pi - headings
+        # headings_smooth = np.pi - headings_smooth
+        # self.heading = heading
         # if self.rotate270:
         #     heading += np.pi/2
-        if np.isnan(heading):
+        if np.isnan(self.heading):
             self.tracking_active = False
             self.head_line.setPen(self.standby_pen)
         else:
@@ -452,50 +464,44 @@ class VideoGUI(QtWidgets.QMainWindow):
             # center the objective image around (0, 0)
             transform = QtGui.QTransform()
             dy, dx = -self.img_height/2 - self.border_pad, -self.img_width/2 - self.border_pad
-            if com_shift is not None:
-                # todo: move the center of mass dot
+            if self.com_shift is not None:
+                # move the center of mass dot
                 com_transform = QtGui.QTransform()
-                com_transform.translate(com_shift[0], com_shift[1])
+                com_transform.translate(self.com_shift[0], self.com_shift[1])
                 self.com_pin.setTransform(com_transform)
             transform.translate(dx, dy)
             # transform.translate(-self.img_height/2, -self.img_width/2)
             self.image_objective.setTransform(transform)
             # update position of head pin based on the heading and inner radius
-            dy = self.inner_slider.x * np.sin(heading)
-            dx = self.inner_slider.x * np.cos(heading)
+            dy = self.inner_slider.x * np.sin(self.heading)
+            dx = self.inner_slider.x * np.cos(self.heading)
             self.head_pin.setPos(dx, dy)
             # update the position of the second point in the heading line
             self.head_line.setData([0, dx], [0, dy])
             # and rotate the relative image by the heading angle
             transform = QtGui.QTransform()
-            transform.rotate(-heading * 180 / np.pi + 90)
+            transform.rotate(-self.heading * 180 / np.pi + 90)
             dx, dy = -self.img_height/2 - self.border_pad, -self.img_width/2 - self.border_pad
-            if com_shift is not None:
-                dx -= com_shift[0]
-                dy -= com_shift[1]
+            if self.com_shift is not None:
+                dx -= self.com_shift[0]
+                dy -= self.com_shift[1]
             transform.translate(dx, dy)
             self.image_relative.setTransform(transform)
-            # plot the headings data in reverse order
-            for num, vals in enumerate([headings, headings_smooth]):
-                if vals is not None:
-                    xs = np.linspace(0, len(vals)/120., len(vals))
-                    # xs /= 120.
-                    self.heading_plot.dataItems[num].setData(x=xs, y=np.unwrap(vals) * 180 / np.pi)
-                    # self.heading_plot.dataItems[num].setData(x=xs, y=vals)
+            # plot the data
+            # todo: store all of the data to plot (self.data)
+            for num, (key, vals) in enumerate(self.data.items()):
+                if len(vals) > 0:
+                    try:
+                        vals_arr = np.array(vals)
+                    except:
+                        print(vals)
+                    if key in ['heading', 'heading_smooth']:
+                        vals_arr = np.unwrap(vals_arr)
+                    vals_arr *= 180 / np.pi
+                    if vals is not None:
+                        xs = np.linspace(0, len(vals_arr)/120., len(vals_arr))
+                        self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
 
-    def update_north(self, north=None):
-        """Update the plotted north point and line."""
-        if north is None:
-            north = self.north
-        north *= -1
-        if self.rotate270:
-            north += np.pi/2
-        # update position of north pin
-        dy = self.inner_slider.x * np.sin(north)
-        dx = self.inner_slider.x * np.cos(north)
-        self.north_pin.setPos(dx, dy)
-        # update the position of the second point in the north line
-        new_y, new_x = self.center_y + dy, self.center_x + dx
 
     def save_vars(self):
         config = configparser.ConfigParser()
@@ -524,6 +530,16 @@ class VideoGUI(QtWidgets.QMainWindow):
         # save config file
         with open(self.config_fn, 'w') as configfile:
             config.write(configfile)
+    
+    def reset_plots(self):
+        """Reset the line plot data."""
+        # reset the plots
+        for key in self.data.keys():
+            # empty each array other than the image
+            if key != 'img':
+                self.data[key] = []
+        
+
 
 class FrameUpdater():
     def __init__(self, height, width, display_rate=30., buffer_fn='_buffer.npy', config_fn='./video_player.config'):
@@ -553,10 +569,7 @@ class FrameUpdater():
             # update the frame
             self.gui.update_frame(val)
             # update the heading variable
-            # heading, north = np.load("_heading.npy")
             heading = np.load("_heading.npy")
-            # north = np.load("_north.npy")
-            # self.gui.update_north(north)
             # get the test headings data
             fn = "_headings.npy"
             fn_smooth = "_headings_smooth.npy"
@@ -564,7 +577,7 @@ class FrameUpdater():
                 headings = np.load(fn)
             if os.path.exists(fn_smooth):
                 headings_smooth = np.load(fn_smooth)
-            self.gui.update_heading(headings, headings_smooth)
+            self.gui.update_plots(headings, headings_smooth)
         except:
             pass
 
@@ -576,16 +589,19 @@ class FrameUpdater():
         # grab the data from the buffer
         buffer = sys.stdin.buffer.read(length_prefix)
         data = pickle.loads(buffer)
-        # extract the new frame and the headings data
-        img = data['img']
-        headings, headings_smooth, com_shift = data['headings'], data['headings_smooth'], data['com_shift']
-        # update the frame and heading
-        self.gui.update_frame(img)
-        if headings_smooth == []:
-            headings_smooth = None
-        if headings_smooth is not None:
-            headings_smooth = np.array(headings_smooth)
-        self.gui.update_heading(np.array(headings), headings_smooth, com_shift)
+        # if data is a reset signal, delete all stored data
+        if 'reset' in data.keys():
+            self.gui.reset_plots()
+        else:
+            # otherwise, if data is the supplied data, then update the plots
+            # extract the new frame and the headings data
+            img = data['img']
+            heading, heading_smooth, com_shift = data['heading'], data['heading_smooth'], data['com_shift']
+            # update the frame and heading
+            self.gui.update_frame(img)
+            # update the stored data
+            self.gui.update_data(heading=heading, heading_smooth=heading_smooth)
+            self.gui.update_plots()
 
 
 if __name__ == "__main__":
