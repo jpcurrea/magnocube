@@ -17,15 +17,13 @@ DATA_FOLDER = "./"
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=DATA_FOLDER)
 exp_starts = [[hc.window.set_far, 5],
               [hc.window.set_bg, [0., 0., 0., 1.]],
-              [tracker.h5_setup],
-              [tracker.store_camera_settings],
               [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1],
               [hc.camera.clear_headings],
               ]
 exp_ends = [[hc.window.set_far, 1],
-            [hc.window.set_bg, orig_bg],
-            [hc.camera.storing_stop]]
+            [hc.window.set_bg, orig_bg]]
 hc.scheduler.add_exp(name='fly tuning', starts=exp_starts, ends=exp_ends)
+
 
 # generate a series of heading positions between -90 and 90
 # angles = n.linspace(-90, 90, )

@@ -70,6 +70,8 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.config_fn = config_fn
         self.experiment_parameters = {}
         self.data = {}
+        self.start_time = time.time()
+        self.current_time = time.time()
         params = ['heading', 'heading_smooth', 'com_shift']
         for param in params:
             self.__setattr__(param, None)
@@ -101,8 +103,8 @@ class VideoGUI(QtWidgets.QMainWindow):
             config.read(self.config_fn)
             # self.genotype_list = config.getList('experiment_parameters','genotype')
             # check if parameters stored
-            keys = ['inner_r', 'outer_r', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise']
-            vars = ['inner_radius', 'outer_radius', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise']
+            keys = ['inner_r', 'outer_r', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'camera_fps']
+            vars = ['inner_radius', 'outer_radius', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'framerate']
             dtypes = [float, float, float, bool, bool, bool, float, float]
             for key, var, dtype in zip(keys, vars, dtypes):
                 if key in config['video_parameters'].keys():
@@ -255,9 +257,14 @@ class VideoGUI(QtWidgets.QMainWindow):
         # the center-of-mass point
         self.com_pin = QtWidgets.QGraphicsEllipseItem(
             0, 0, linewidth/2, linewidth/2)
-        self.com_pin.setPen(pg.mkPen(255, 255, 255, 255, width=1))
+        self.com_pin.setPen(
+            pg.mkPen(255 * red[0], 255 * red[1], 255 * red[2], 255,
+                     width=1))
         self.com_pin.setBrush(
-            pg.mkBrush(255, 255, 255, 255))
+            pg.mkBrush(255 * red[0], 255 * red[1], 255 * red[2], 255))
+        # self.com_pin.setPen(pg.mkPen(255, 255, 255, 255, width=1))
+        # self.com_pin.setBrush(
+        #     pg.mkBrush(255, 255, 255, 255))
         self.view_objective.addItem(self.com_pin)
 
     def setup_sliders(self):
@@ -413,17 +420,23 @@ class VideoGUI(QtWidgets.QMainWindow):
         
     def update_data(self, **data):
         """Update the data used for plotting."""
-        for key, val in data.items():
-            if key != 'img':
-                # make special changes to the heading data
-                if key in ['heading', 'heading_smooth']:
-                    val = np.pi - val
-                # store as an attribute
-                self.__setattr__(key, val)
-                if key in self.data.keys():
-                    self.data[key] += [val]
-                else:
-                    self.data[key] = [val]
+        self.current_time = time.time()
+        for key, vals in data.items():
+            if not isinstance(vals, list):
+                print(key, vals)
+            if len(vals) > 0:
+                if key != 'img':
+                    # make special changes to the heading data
+                    if key in ['heading', 'heading_smooth']:
+                        vals = [np.pi - val for val in vals]
+                        data[key] = vals
+                    val = vals[-1]
+                    # store as an attribute
+                    self.__setattr__(key, val)
+                    if key in self.data.keys():
+                        self.data[key] += [vals]
+                    else:
+                        self.data[key] = [vals]
 
     def update_plots(self):
         """Update the plotted data."""
@@ -490,16 +503,18 @@ class VideoGUI(QtWidgets.QMainWindow):
             # plot the data
             # todo: store all of the data to plot (self.data)
             for num, (key, vals) in enumerate(self.data.items()):
-                if len(vals) > 0:
-                    try:
-                        vals_arr = np.array(vals)
-                    except:
-                        print(vals)
+                if len(vals) > 0 and key in ['heading', 'heading_smooth']:
+                    vals_arr = np.concatenate(vals)
                     if key in ['heading', 'heading_smooth']:
-                        vals_arr = np.unwrap(vals_arr)
+                        diffs = vals_arr[1:] - vals_arr[:-1]
+                        diffs[np.isnan(diffs)] = 0
+                        new_vals = np.cumsum(diffs)
+                        vals_arr = np.unwrap(new_vals)
                     vals_arr *= 180 / np.pi
                     if vals is not None:
-                        xs = np.linspace(0, len(vals_arr)/120., len(vals_arr))
+                        # xs = np.linspace(0, len(vals_arr)/self.framerate, len(vals_arr))
+                        # self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
+                        xs = np.linspace(0, self.current_time - self.start_time, len(vals_arr))
                         self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
 
 
@@ -516,7 +531,7 @@ class VideoGUI(QtWidgets.QMainWindow):
                     str(self.invert_check.isChecked()))
         # save experiment parameter options
         for key, val in self.experiment_parameters.items():
-            config.set('experiment_parameters', key, val.currentText())
+            config.set('experiment_parameter_options', key, val.currentText())
         # if 'sex' in dir(self):
         #     config.set('experiment_parameters', 'sex', self.sex)
         # if 'genotype' in dir(self):
@@ -534,6 +549,8 @@ class VideoGUI(QtWidgets.QMainWindow):
     def reset_plots(self):
         """Reset the line plot data."""
         # reset the plots
+        self.start_time = time.time()
+        self.current_time = time.time()
         for key in self.data.keys():
             # empty each array other than the image
             if key != 'img':
@@ -559,8 +576,9 @@ class FrameUpdater():
         self.timer.start()
 
     def __del__(self):
-        if self.timer.isActive():
-            self.timer.stop()
+        if 'timer' in dir(self):
+            if self.timer.isActive():
+                self.timer.stop()
 
     def update_val_from_file(self):
         try:
@@ -589,6 +607,8 @@ class FrameUpdater():
         # grab the data from the buffer
         buffer = sys.stdin.buffer.read(length_prefix)
         data = pickle.loads(buffer)
+        if 'com_shift' not in data.keys():
+            data['com_shift'] = [0]
         # if data is a reset signal, delete all stored data
         if 'reset' in data.keys():
             self.gui.reset_plots()
@@ -600,7 +620,7 @@ class FrameUpdater():
             # update the frame and heading
             self.gui.update_frame(img)
             # update the stored data
-            self.gui.update_data(heading=heading, heading_smooth=heading_smooth)
+            self.gui.update_data(heading=heading, heading_smooth=heading_smooth, com_shift=com_shift)
             self.gui.update_plots()
 
 

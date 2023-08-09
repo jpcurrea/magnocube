@@ -49,8 +49,12 @@ if pyspin_loaded:
     # Retrieve list of cameras from the system
     cam_list = system.GetCameras()
 else:
-    cam_list = [None]
+    cam_list = []
 
+hq_video = "H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4"
+if len(cam_list) == 0:
+    cam_list = [hq_video]
+    pyspin_loaded = False
 
 # a class to transform a given image given the 4 corners of the destination
 class TiltedPanel():
@@ -312,6 +316,7 @@ class Kalman_Filter():
             # np.clip(self.estimate_points[1], -self.width/2, self.width/2, out=self.estimate_points[1])
             return self.estimate_points.T  # shape should be (num_objects, 2)
         except:
+            breakpoint()
             return np.array([np.nan, np.nan])
     
 
@@ -398,7 +403,7 @@ class KalmanAngle(Kalman_Filter):
         self.revolutions = 0
         self.record = []
         # print key parameters
-        print(f"jerk std={self.jerk_std}, noise std={self.measurement_noise_x}")
+        # print(f"jerk std={self.jerk_std}, noise std={self.measurement_noise_x}")
 
     def store(self, point):
         """Converts single point to appropriate shape for the 2D filter.
@@ -438,7 +443,7 @@ class Camera():
     def __init__(self, camera=cam_list[0], invert_rotations=True, kalman=True,
                  window=None, plot_stimulus=True, config_fn='video_player.config',
                  video_player_fn='video_player_server.py', com_correction=True,
-                 saccade_trigger=True, acceleration_thresh=300):
+                 saccade_trigger=True, acceleration_thresh=1000):
         """Read from a BlackFly Camera via USB allowing GPIO triggers.
 
 
@@ -475,7 +480,7 @@ class Camera():
         self.speed_thresh = 0
         self.is_saccading = False
         self.com_correction = com_correction
-        self.com_shift = None
+        self.com_shift = [0, 0]
         self.kalman = kalman
         self.camera = camera
         self.window = window
@@ -564,7 +569,7 @@ class Camera():
 
     def camera_info(self):
         """Use PySpin to get camera device information"""
-        if pyspin_loaded:
+        if not self.dummy:
             self.nodemap_device = self.camera.GetTLDeviceNodeMap()
             # get device information node
             self.device_info_node = PySpin.CCategoryPtr(
@@ -661,7 +666,7 @@ class Camera():
                 else:
                     self.frames.put(self.frame)
                 # update frame number
-                self.frame_num += 1
+            self.frame_num += 1
 
     def capture_dummy(self):
         self.frame_num = 0
@@ -677,6 +682,7 @@ class Camera():
             if self.frame_num > self.num_frames:
                 self.clear_headings()
                 self.reset_display()
+                self.reset_data()
                 self.video = io.FFmpegReader(self.dummy_fn)
                 self.frame_num = 0
             self.frame_num += 1
@@ -709,7 +715,6 @@ class Camera():
 
     def storing_start(self, duration=-1, dirname="./", save_fn=None,
                       capture_online=False):
-        # todo: try replacing the vwrite method with an iterative ffmpeg writer
         self.frames = Queue()
         self.frame_num = 0
         self.frames_stored = 0
@@ -717,6 +722,8 @@ class Camera():
         self.headings_smooth = []
         self.heading_smooth = self.heading
         self.storing = True
+        self.reset_display()
+        self.reset_data()
         if not self.dummy and self.capturing:
             if save_fn is None:
                 save_fn = f"{timestamp()}.mp4"
@@ -725,7 +732,7 @@ class Camera():
             if capture_online:
                 input_dict = {'-r': str(round(self.framerate)), '-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
                 output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
-                # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'p7', '-vf':'hue=s=0'}
+                # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'p7', '-vf':'hue=s=0'}   
                 # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'lossless', '-vf':'hue=s=0'}
                 self.video_writer = io.FFmpegWriter(save_fn, inputdict=input_dict, outputdict=output_dict)
                 self.storing_thread = threading.Thread(target=self.store_frames)
@@ -756,7 +763,7 @@ class Camera():
         if 'storing_thread' in dir(self):
             while self.frames_stored < total_frames:
                 print_progress(self.frames_stored, self.frame_num)
-        if "save_fn" in dir(self) and self.capturing:
+        if "save_fn" in dir(self) and self.capturing and not self.dummy:
             if 'video_writer' in dir(self):
                 self.video_writer.close()
                 print(f"{self.frames_stored} frames saved in {self.save_fn}")
@@ -777,6 +784,7 @@ class Camera():
         #     self.save_thread = threading.Thread(
         #         target=self.save_frames, kwargs={'new_fn': save_fn})
         #     self.save_thread.start()
+        self.reset_data()
 
     def capture_stop(self, save_fn=None):
         """Stop capturing frames and store the file."""
@@ -791,6 +799,10 @@ class Camera():
 
     def display_start(self):
         """Start the video_player_server.py subprocess to run in background."""
+        # make a dictionary to keep track of data to be PIPEd to the video player
+        self.display_data = {'heading': [], 'heading_smooth': [], 'com_shift': [], 
+                             'left_wing_amp': [], 'right_wing_amp': [], 'head_angle': [],
+                             'left_haltere': [], 'right_haltere': []}
         # start the player
         args = ["python", self.video_player_fn, "-h", str(self.height),
                 "-w", str(self.height), "-config_fn", str(self.config_fn)]
@@ -799,9 +811,9 @@ class Camera():
         # use a thread to update the frame and heading
         self.update_heading()
         if self.kalman:
-            self.signal_display(img=self.frame, heading=self.headings[-1], heading_smooth=self.headings_smooth[-1])
+            self.signal_display(img=self.frame, **self.display_data)
         else:
-            self.signal_display(img=self.frame, heading=self.headings[-1])
+            self.signal_display(img=self.frame, **self.display_data)
         self.frame_updater = threading.Thread(
             target=self.display)
         self.frame_updater.start()
@@ -812,7 +824,7 @@ class Camera():
         if self.video_player.poll() is None:
             self.video_player.kill()
 
-    def display(self, framerate=480.):
+    def display(self, framerate=30.):
         """Save frame and heading for video_player_server.py to display."""
         # note: there were problems due to stray threads continuously running
         interval = 1/framerate
@@ -843,7 +855,9 @@ class Camera():
                 # todo: fix min_width to make the final border dimensions correctly
                 img[offset:offset + self.height, offset:offset + self.height] = frame_cropped[..., np.newaxis]
                 frame_cropped = img
-            self.signal_display(img=frame_cropped, heading=self.headings[-1], heading_smooth=self.heading_smooth, com_shift=self.com_shift)
+            # self.signal_display(img=frame_cropped, heading=self.heading, heading_smooth=self.heading_smooth, com_shift=self.com_shift)
+            self.signal_display(img=frame_cropped, **self.display_data)
+            self.reset_data()
             # np.save(self.buffer_fn, frame_cropped)
             time.sleep(interval)
 
@@ -870,7 +884,9 @@ class Camera():
         for each parameter. This function instructs the server to clear these
         lists.
         """
-        self.signal_display({'reset': True})
+        self.reset_data()
+        self.signal_display(reset=True)
+        self.background = np.zeros((912, 1140, 4), dtype='uint8')
 
     def get_background(self, img):
         if callable(img):
@@ -905,55 +921,61 @@ class Camera():
         return combine_panels(self.panels, imgs)
 
     def reset_display_headings(self):
+        self.reset_display()
+        self.reset_data()
         if 'headings_fn' in dir(self):
             np.save(self.headings_fn, np.array([]))
 
     def save_frames(self, new_fn):
         """Save the captured frames as a new video."""
-        self.frames = np.concatenate(self.frames)
-        self.frames = self.frames.reshape((self.frame_num, self.height, self.width))
-        input_dict = {'-r': str(round(self.framerate)), '-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
-        output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
-        io.vwrite(new_fn, self.frames, inputdict=input_dict, outputdict=output_dict)
-        print(f"{self.frame_num} frames saved in {new_fn}")
+        if self.storing and not self.dummy:
+            self.frames = np.concatenate(self.frames)
+            self.frames = self.frames.reshape((self.frame_num, self.height, self.width))
+            input_dict = {'-r': str(round(self.framerate)), '-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
+            output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
+            io.vwrite(new_fn, self.frames, inputdict=input_dict, outputdict=output_dict)
+            print(f"{self.frame_num} frames saved in {new_fn}")
 
     def import_config(self, ring_thickness=3):
-        # get the stored ring radii, threshold, and whether to invert
-        info = configparser.ConfigParser()
-        info.read(self.config_fn)
-        if 'video_parameters' in info.keys():
-            self.vid_params = info['video_parameters']
-            for key, dtype in zip(['thresh', 'inner_r', 'outer_r', 'invert', 'flipped', 'kalman_jerk_std', 'kalman_noise'],
-                                    [int, float, float, bool, bool, float, float]):
-                if dtype == bool:
-                    val = self.vid_params[key] == 'True'
-                else:
-                    val = dtype(self.vid_params[key])
-                setattr(self, key, val)
-            # get the inner ring indices and angles
-            self.inner_inds = self.img_dists <= (self.inner_r + ring_thickness/2.)
-            self.inner_inds *= self.img_dists > (self.inner_r - ring_thickness/2.)
-            # self.inner_inds = self.inner_inds.flatten()
-            # self.inner_angs = self.img_angs.flatten()[self.inner_inds]
-            self.inner_angs = self.img_angs[self.inner_inds]
-            # get the outer ring indices and angles
-            self.outer_inds = self.img_dists <= (self.outer_r + ring_thickness/2.)
-            self.outer_inds *= self.img_dists > (self.outer_r - ring_thickness/2.)
-            # self.outer_inds = self.outer_inds.flatten()
-            # self.outer_angs = self.img_angs.flatten()[self.outer_inds]
-            self.outer_angs = self.img_angs[self.outer_inds]
-            # get experiment specific information
-            self.exp_params = info['experiment_parameters']
-            self.male = self.exp_params == 'male'
-            # update the kalman filter if values changed
-            if 'kalman_filter' in dir(self):
-                std_changed = self.kalman_filter.jerk_std != self.kalman_jerk_std
-                noise_changed = self.kalman_filter.measurement_noise_x != self.kalman_noise
-                if std_changed or noise_changed:
-                    self.kalman_setup()
-        # import user-chosen experiment too
-        if "experiment_parameters" in info.keys():
-            self.exp_params = info['experiment_parameters']
+        if 'last_imported' not in dir(self):
+            self.last_import = 0
+        if os.path.getmtime(self.config_fn) > self.last_import:
+            # get the stored ring radii, threshold, and whether to invert
+            info = configparser.ConfigParser()
+            info.read(self.config_fn)
+            if 'video_parameters' in info.keys():
+                self.vid_params = info['video_parameters']
+                for key, dtype in zip(['thresh', 'inner_r', 'outer_r', 'invert', 'flipped', 'kalman_jerk_std', 'kalman_noise'],
+                                        [int, float, float, bool, bool, float, float]):
+                    if dtype == bool:
+                        val = self.vid_params[key] == 'True'
+                    else:
+                        val = dtype(self.vid_params[key])
+                    setattr(self, key, val)
+                # get the inner ring indices and angles
+                self.inner_inds = self.img_dists <= (self.inner_r + ring_thickness/2.)
+                self.inner_inds *= self.img_dists > (self.inner_r - ring_thickness/2.)
+                # self.inner_inds = self.inner_inds.flatten()
+                # self.inner_angs = self.img_angs.flatten()[self.inner_inds]
+                self.inner_angs = self.img_angs[self.inner_inds]
+                # get the outer ring indices and angles
+                self.outer_inds = self.img_dists <= (self.outer_r + ring_thickness/2.)
+                self.outer_inds *= self.img_dists > (self.outer_r - ring_thickness/2.)
+                # self.outer_inds = self.outer_inds.flatten()
+                # self.outer_angs = self.img_angs.flatten()[self.outer_inds]
+                self.outer_angs = self.img_angs[self.outer_inds]
+                # get experiment specific information
+                self.exp_params = info['experiment_parameter_options']
+                self.male = self.exp_params == 'male'
+                # update the kalman filter if values changed
+                if 'kalman_filter' in dir(self):
+                    std_changed = self.kalman_filter.jerk_std != self.kalman_jerk_std
+                    noise_changed = self.kalman_filter.measurement_noise_x != self.kalman_noise
+                    if std_changed or noise_changed:
+                        self.kalman_setup()
+            # import user-chosen experiment parameterstoo
+            if "experiment_parameter_options" in info.keys():
+                self.exp_params = info['experiment_parameter_options']
 
     def update_heading(self, absolute=False):
         if self.playing:
@@ -973,7 +995,8 @@ class Camera():
             thresh, invert = self.thresh, self.invert
             # todo: use index numbers instead of a boolean array, because it's faster to translate
             outer_inds, outer_angs = np.where(self.outer_inds), self.outer_angs
-            inner_inds, inner_angs = np.where(self.inner_inds), self.inner_angs
+            if outer_inds[0].size > outer_angs.size:
+                outer_inds = (outer_inds[0][:outer_angs.size], outer_inds[1][:outer_angs.size])
             # outer_inds, outer_angs = self.outer_inds, self.outer_angs
             # inner_inds, inner_angs = self.inner_inds, self.inner_angs
             frame = self.frame
@@ -1037,11 +1060,19 @@ class Camera():
                         lower_bounds += [-np.pi]
                     lower_bounds, upper_bounds = np.array(lower_bounds), np.array(upper_bounds)
                     # 4. calculate the heading within the lower and upper bounds
+                    inner_inds, inner_angs = np.where(self.inner_inds), self.inner_angs
+                    if inner_inds[0].size > inner_angs.size:
+                        inner_inds = (inner_inds[0][:inner_angs.size], inner_inds[1][:inner_angs.size])
+                    # while np.any(inner_inds[0] < -100):
+                    #     inner_inds, inner_angs = np.where(self.inner_inds), self.inner_angs
                     include = np.zeros(len(inner_angs), dtype=bool)
                     for lower, upper in zip(lower_bounds, upper_bounds):
                         include += (inner_angs > lower) * (inner_angs < upper)
                     if np.any(include):
-                        inner_vals = frame[inner_inds[0], inner_inds[1]][include]
+                        try:
+                            inner_vals = frame[inner_inds[0], inner_inds[1]][include]
+                        except:
+                            breakpoint()
                         if self.invert:
                             head = inner_vals < thresh
                         else:
@@ -1060,6 +1091,7 @@ class Camera():
                     self.com_shift = np.round(-diff).astype(int)
                 else:
                     self.com_shift = np.zeros(2)
+                self.display_data['com_shift'] += [self.com_shift]
             # center and wrap the heading
             heading -= np.pi/2
             if heading < -np.pi:
@@ -1067,6 +1099,7 @@ class Camera():
             # store
             self.heading = copy.copy(heading)
             self.headings += [self.heading]
+            self.display_data['heading'] += [heading]
             if self.kalman:
                 # if self.is_saccading:
                 #     # if saccading, then use the normal heading
@@ -1092,7 +1125,6 @@ class Camera():
                     acceleration = abs(np.diff(speed))
                     acceleration *= self.framerate**2
                     speed = np.nanmean(speed)
-                    print(speed)
                     # if sacccading, then check if the acceleration is below a threshold and switch
                     if self.is_saccading:
                         self.headings_smooth += [heading]
@@ -1116,10 +1148,15 @@ class Camera():
                             heading = self.heading_smooth
                 else:
                     self.headings_smooth += [heading]
+                self.display_data['heading_smooth'] += [self.heading_smooth]
             return heading
         else:
             self.heading = 0
             return self.heading
+
+    def reset_data(self):
+        for key in self.display_data.keys():
+            self.display_data[key] = []
 
     def update_north(self, north):
         self.north = north
@@ -1178,6 +1215,14 @@ class TrackingTrial():
         self.add_virtual_object(
             name='fly_heading', start_angle=self.camera.update_heading,
             motion_gain=-1, object=False)
+        # make an empty list for test data
+        self.tests = []
+        self.yaws = []  # the list of yaw arrays per test from holocube
+        self.headings = []  # the list of headings per test from the camera
+        self.heading = 0
+        self.virtual_headings_test = []  # the list of headings per test from the camera
+        self.virtual_headings = []  # the list of headings per test from the camera
+        self.test_info = {}  # the experiment parameters per test
 
     def h5_setup(self, save_fn=None):
         if self.camera.capturing:
@@ -1189,14 +1234,6 @@ class TrackingTrial():
                 temp_file = h5py.File(self.fn, 'w')
                 temp_file.close()
             self.h5_file = h5py.File(self.fn, 'w')
-            # make an empty list for test data
-            self.tests = []
-            self.yaws = []  # the list of yaw arrays per test from holocube
-            self.headings = []  # the list of headings per test from the camera
-            self.heading = 0
-            self.virtual_headings_test = []  # the list of headings per test from the camera
-            self.virtual_headings = []  # the list of headings per test from the camera
-            self.test_info = {}  # the experiment parameters per test
 
     def store_camera_settings(self):
         """Store the camera settings for analysis later."""
@@ -1279,14 +1316,14 @@ class TrackingTrial():
             dataset. Each parameter can be either a single number or an array of numbers
             with length = len(arr).
         """
-        if self.camera.capturing:
+        if self.camera.capturing and not self.camera.dummy:
             if callable(value):
                 value = value()
             self.h5_file.attrs[key] = value
 
     def save(self):
         """Store the test data and information into the H5 dataset."""
-        if self.camera.capturing:
+        if self.camera.capturing and not self.camera.dummy:
             # store the two heading measurements
             if len(self.virtual_headings) > 0:
                 max_len = max([len(test) for test in self.virtual_headings])
