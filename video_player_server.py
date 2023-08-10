@@ -425,6 +425,7 @@ class VideoGUI(QtWidgets.QMainWindow):
             if not isinstance(vals, list):
                 print(key, vals)
             if len(vals) > 0:
+                vals = np.concatenate(vals)
                 if key != 'img':
                     # make special changes to the heading data
                     if key in ['heading', 'heading_smooth']:
