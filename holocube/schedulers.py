@@ -175,7 +175,7 @@ class Scheduler():
         # now start the frames
         self.test_list = [self.idles[0].rest[0]]
         pyglet.clock.schedule_interval(self.show_frame, 1./self.freq)
-        # pyglet.options['vsync'] = False 
+        # pyglet.options['vsync'] = True
         pyglet.clock.MIN_SLEEP = .005
 
     def load_dir(self, dir_name='experiments', suffix=('exp.py', 'rest.py')):

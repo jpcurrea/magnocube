@@ -420,24 +420,28 @@ class VideoGUI(QtWidgets.QMainWindow):
         
     def update_data(self, **data):
         """Update the data used for plotting."""
-        self.current_time = time.time()
+        any_changed = False
         for key, vals in data.items():
             if not isinstance(vals, list):
                 print(key, vals)
             if len(vals) > 0:
                 vals = np.concatenate(vals)
-                if key != 'img':
-                    # make special changes to the heading data
-                    if key in ['heading', 'heading_smooth']:
-                        vals = [np.pi - val for val in vals]
-                        data[key] = vals
-                    val = vals[-1]
-                    # store as an attribute
-                    self.__setattr__(key, val)
-                    if key in self.data.keys():
-                        self.data[key] += [vals]
-                    else:
-                        self.data[key] = [vals]
+                if len(vals) > 0:
+                    if key != 'img':
+                        # make special changes to the heading data
+                        if key in ['heading', 'heading_smooth']:
+                            vals = [np.pi - val for val in vals]
+                            data[key] = vals
+                        val = vals[-1]
+                        # store as an attribute
+                        self.__setattr__(key, val)
+                        if key in self.data.keys():
+                            self.data[key] += [vals]
+                        else:
+                            self.data[key] = [vals]
+                        any_changed = True
+        if any_changed:
+            self.current_time = time.time()
 
     def update_plots(self):
         """Update the plotted data."""
@@ -469,6 +473,7 @@ class VideoGUI(QtWidgets.QMainWindow):
         # if self.rotate270:
         #     heading += np.pi/2
         if np.isnan(self.heading):
+            print(self.data['heading'])
             self.tracking_active = False
             self.head_line.setPen(self.standby_pen)
         else:
@@ -517,7 +522,6 @@ class VideoGUI(QtWidgets.QMainWindow):
                         # self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
                         xs = np.linspace(0, self.current_time - self.start_time, len(vals_arr))
                         self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
-
 
     def save_vars(self):
         config = configparser.ConfigParser()

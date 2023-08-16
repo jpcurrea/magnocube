@@ -21,7 +21,8 @@ exp_starts = [[hc.window.set_far, 5],
               [hc.camera.clear_headings],
               ]
 exp_ends = [[hc.window.set_far, 1],
-            [hc.window.set_bg, orig_bg]]
+            [hc.window.set_bg, orig_bg],
+            [hc.camera.clear_headings]]
 hc.scheduler.add_exp(name='fly tuning', starts=exp_starts, ends=exp_ends)
 
 
