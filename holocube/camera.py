@@ -52,7 +52,8 @@ else:
     cam_list = []
 
 hq_video = "H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4"
-if len(cam_list) == 0:
+if True:
+# if len(cam_list) == 0:
     cam_list = [hq_video]
     pyspin_loaded = False
 
@@ -650,16 +651,23 @@ class Camera():
         self.buffer = np.array(self.buffer)
         return self.buffer
 
-    def capture(self, timeout=1000):
+    def capture(self, timeout=1000, buffer_size=1):
         """Simple loop for collecing frames. Alternative using list append."""
         # until stop signal, capture frames in the buffer
         self.frame_num = 0
+        # todo: make a numpy array for storing frames between heading updates
+        # the size of the buffer should be the ratio of the camera and the stimulus framerates
+        # buffer_size = self.framerate / self.
+        # self.frames_to_process = np.zeros()
         # setup optional display
         while self.capturing:
             # retrieve the next frame
             self.frame = self.camera.GetNextImage(timeout).GetData()
             # store 
             self.frames_to_process += [self.frame]
+            # if self.storing:
+            #     self.frames.put(self.frame)
+            #     self.frame_num += 1
             # self.update_heading()
             # if self.storing:
             #     # save the files
@@ -669,7 +677,6 @@ class Camera():
             #     else:
             #         self.frames.put(self.frame)
                 # update frame number
-            self.frame_num += 1
 
     def capture_dummy(self):
         self.frame_num = 0
@@ -694,6 +701,7 @@ class Camera():
 
     def capture_start(self):
         """Begin capturing, processing, and storing frames in a Thread."""
+        self.frames = Queue()
         if not self.dummy:
             # assume the camera is armed
             assert self.is_armed(), ("The camera is not armed. Try running "
@@ -717,8 +725,7 @@ class Camera():
         # start the thread
         self.capture_thread.start()
 
-    def storing_start(self, duration=-1, dirname="./", save_fn=None,
-                      capture_online=False):
+    def storing_start(self, duration=-1, dirname="./", save_fn=None, capture_online=False):
         self.frames = Queue()
         self.frame_num = 0
         self.frames_stored = 0
@@ -726,8 +733,6 @@ class Camera():
         self.headings_smooth = []
         self.heading_smooth = self.heading
         self.storing = True
-        self.reset_display()
-        self.reset_data()
         if not self.dummy and self.capturing:
             if save_fn is None:
                 save_fn = f"{timestamp()}.mp4"
@@ -746,6 +751,8 @@ class Camera():
             if duration > 0 and save_fn is not None:
                 time.sleep(duration)
                 self.storing_stop(save_fn=save_fn)
+        self.reset_display()
+        self.reset_data()
 
     def get_save_fn(self):
         return self.save_fn
@@ -753,21 +760,25 @@ class Camera():
     def store_frames(self):
         """A thread to send frames to the ffmpeg writer"""
         print("start storing frames")
-        while self.storing or self.frames_stored < self.frame_num:
+        while self.frames_stored < self.frame_num:
             frame = self.frames.get().reshape(self.height, self.width)
             frame = frame.astype('uint8')
             self.video_writer.writeFrame(frame)
             self.frames_stored += 1
-            if self.storing:
-                time.sleep(.002)
+            time.sleep(.002)
 
     def storing_stop(self):
         self.storing = False
         total_frames = self.frame_num
         if 'storing_thread' in dir(self):
-            while self.frames_stored < total_frames:
-                print_progress(self.frames_stored, self.frame_num)
-        if "save_fn" in dir(self) and self.capturing and not self.dummy:
+            cancel = False
+            resp = input("press <c> to cancel recording or <enter> to continue: ")
+            if resp == 'c':
+                cancel = True
+            if not cancel:
+                while self.frames_stored < total_frames:
+                    print_progress(self.frames_stored, self.frame_num)
+        if "save_fn" in dir(self) and not self.dummy and not cancel:
             if 'video_writer' in dir(self):
                 self.video_writer.close()
                 print(f"{self.frames_stored} frames saved in {self.save_fn}")
@@ -780,6 +791,9 @@ class Camera():
                 self.frames_stored = len(self.frames)
                 # self.storing_thread = threading.Thread(target=self.store_frames)
                 # self.storing_thread.start()
+        elif 'video_writer' in dir(self) and cancel:
+            self.video_writer.close()
+            os.remove(self.save_fn)
         # assume the camera has frames stored
         # assert len(self.frames) > 0, ("No frames stored! First try running "
         #                               +f"{self.storing_start}")
@@ -983,6 +997,11 @@ class Camera():
                 self.exp_params = info['experiment_parameter_options']
 
     def update_heading(self, absolute=False):
+        # todo: speed up this stage using CUDA to process at a much higher framerate
+        # todo: make a numpy array to store frames between outputs. this'll allow for faster 
+        # indexing of the 3d array, grabbing the inner and outer rings more quickly
+        # the center of mass calculations may be the slowest part here. CUDA should 
+        # help with that.
         if self.playing and len(self.frames_to_process) > 0:
             try:
                 self.import_config()
@@ -990,76 +1009,59 @@ class Camera():
                 pass
             """Use stored radii to approximate the heading."""
             # 0. grab current value of pertinent variabls
-            # thresh = np.copy(self.thresh)
-            # invert = np.copy(self.invert)
-            # outer_inds = np.copy(self.outer_inds)
-            # outer_angs = np.copy(self.outer_angs)
-            # inner_inds = np.copy(self.inner_inds)
-            # inner_angs = np.copy(self.inner_angs)
-            # frame = np.copy(self.frame)
             thresh, invert = self.thresh, self.invert
-            # todo: use index numbers instead of a boolean array, because it's faster to translate
+            # use index numbers instead of a boolean array, because it's faster to translate
             outer_inds, outer_angs = np.where(self.outer_inds), self.outer_angs
             if outer_inds[0].size > outer_angs.size:
                 outer_inds = (outer_inds[0][:outer_angs.size], outer_inds[1][:outer_angs.size])
             # outer_inds, outer_angs = self.outer_inds, self.outer_angs
             # inner_inds, inner_angs = self.inner_inds, self.inner_angs
             # frame = self.frame
-            frames = np.array(self.frames_to_process)
+            frames = [self.frames_to_process[-1]]
+            diffs = []
+            headings = []
+            headings_smooth = []
             if len(frames) > 0:
                 self.frames_to_process = []
-                # 1. get outer ring, which should include just the tail
-                if frames.ndim == 2:
-                    frames = frames.reshape(len(frames), self.height, self.width)
-                elif frames.ndim > 3:
-                    frames = frames[..., 0]
-                # adjust inner and outer inds using the center of mass
-                if self.com_correction:
-                    if invert:
-                        frame_masks = frames < thresh
-                    else:
-                        frame_masks = frames > thresh
-                    # todo: measure center of mass using numpy operations
-                    diffs = []
-                    for mask in frame_masks:
-                        com = scipy.ndimage.measurements.center_of_mass(mask)
+                for frame in frames:
+                    # 1. get outer ring, which should include just the tail
+                    if frame.ndim == 1:
+                        frame = frame.reshape(self.height, self.width)
+                    elif frame.ndim > 2:
+                        frame = frame[..., 0]
+                    # adjust inner and outer inds using the center of mass
+                    if self.com_correction:
+                        if invert:
+                            frame_mask = frame < thresh
+                        else:
+                            frame_mask = frame > thresh
+                        # todo: measure center of mass using numpy operations
+                        com = scipy.ndimage.measurements.center_of_mass(frame_mask)
                         diff =  np.array([self.height/2, self.width/2]) - np.array(com)
-                        diffs += [diff]
-                    diff = diffs[-1]
-                    # account for shifts in the center of mass
-                    # com = scipy.ndimage.measurements.center_of_mass(frame_mask[0])
-                    # outer_inds += np.round(diff).astype(int)[:, np.newaxis]
-                    # inner_inds += np.round(diff).astype(int)[:, np.newaxis]
-                # use the new adjusted outer and inner inds
-                # self.com = None
-                # outer_ring = frame[outer_inds[0], outer_inds[1]]
-                outer_ring = frames[:, outer_inds[0], outer_inds[1]]
-                headings = [np.nan for x in range(len(outer_ring))]
-                if self.flipped:
-                    # 2. if fly is forward leaning, then the head is in the outer ring
-                    # and we can ignore the inner ring
-                    if invert:
-                        head = outer_ring < thresh
-                    else:
-                        head = outer_ring > thresh
-                    if len(outer_angs) == len(head):
-                        headings = []
-                        for inds in head:
-                            head_angs = outer_angs[inds]
+                    # use the new adjusted outer and inner inds
+                    outer_ring = frame[outer_inds[0], outer_inds[1]]
+                    heading = np.nan
+                    if self.flipped:
+                        # 2. if fly is forward leaning, then the head is in the outer ring
+                        # and we can ignore the inner ring
+                        if invert:
+                            head = outer_ring < thresh
+                        else:
+                            head = outer_ring > thresh
+                        if len(outer_angs) == len(head):
+                            head_angs = outer_angs[head]
                             heading = scipy.stats.circmean(
                                 head_angs.flatten(), low=-np.pi, high=np.pi)
-                            headings += [inds]
-                else:
-                    # 2. find the tail and head orientation by thresholding the outer ring
-                    # values and calculate the tail heading as the circular mean
-                    if invert:
-                        tail = outer_ring < thresh
+                            headings += [heading]
                     else:
-                        tail = outer_ring > thresh
-                    if len(outer_angs) == tail.shape[-1]:
-                        headings = []
-                        for inds, frame in zip(tail, frames):
-                            tail_angs = outer_angs[inds]
+                        # 2. find the tail and head orientation by thresholding the outer ring
+                        # values and calculate the tail heading as the circular mean
+                        if invert:
+                            tail = outer_ring < thresh
+                        else:
+                            tail = outer_ring > thresh
+                        if len(outer_angs) == len(tail):
+                            tail_angs = outer_angs[tail]
                             tail_dir = scipy.stats.circmean(tail_angs.flatten(), low=-np.pi, high=np.pi)
                             # the head direction is the polar opposite of the tail
                             head_dir = tail_dir + np.pi
@@ -1095,79 +1097,69 @@ class Camera():
                                 else:
                                     head = inner_vals > thresh
                                 heading = scipy.stats.circmean(inner_angs[include][head], low=-np.pi, high=np.pi)
-                                headings += [heading]
                             else:
-                                headings += [np.nan]
-                if self.com_correction:
-                    # convert from heading angle to head position for each heading
-                    new_headings = []
-                    for heading in headings:
+                                heading = np.nan
+                    if self.com_correction:
+                        # convert from heading angle to head position for each heading
                         heading_pos = self.inner_r * np.array([np.sin(heading), np.cos(heading)])
                         # calculate direction vector between the center of the fly and the head
                         direction = heading_pos + diff
                         if not np.any(np.isnan(direction)):
-                            new_headings += [np.arctan2(direction[0], direction[1])]
+                            heading = np.arctan2(direction[0], direction[1])
                             # store the shift in the center of mass for plotting4
                             self.com_shift = np.round(diff).astype(int)
                         else:
-                            new_headings += [heading]
                             self.com_shift = np.zeros(2)
-                    headings = new_headings
-                # center and wrap the heading
-                new_headings = []
-                for heading in headings:
+                    # center and wrap the heading
                     heading -= np.pi/2
                     if heading < -np.pi:
                         heading += 2 * np.pi
-                    new_headings += [heading]
-                headings = new_headings
-                # store
-                self.heading = copy.copy(headings[-1])
-                for heading in headings:
-                    self.headings += [heading]
-                if self.kalman:
-                    headings_smooth = []
-                    for heading in headings:
+                    # store
+                    self.heading = copy.copy(heading)
+                    headings += [heading]
+                    if self.kalman:
+                        heading_smooth = heading
                         # use kalman filter, only if heading is not np.nan
-                        if not np.isnan(heading):
+                        if not np.isnan(heading_smooth):
                             # apply the kalman filter to the headings and output both the 
                             try:
                                 self.kalman_filter.store(heading)
                             except:
                                 self.kalman_setup()
                                 self.kalman_filter.store(heading)
-                        heading_smooth = self.kalman_filter.predict()
-                        # check if acceleration is above a threshold
-                        if self.frame_num > 5:
-                            speed = abs(np.diff(self.kalman_filter.record[-4:-1]))
-                            acceleration = abs(np.diff(speed))
-                            acceleration *= self.framerate**2
-                            speed = np.nanmean(speed)
-                            # if sacccading, then check if the acceleration is below a threshold and switch
-                            if self.is_saccading:
-                                headings_smooth += [heading]
-                                if (speed < .1*self.speed_thresh) and (self.frame_num - self.saccade_frame > 10):
-                                    self.is_saccading = False
-                                    self.kalman_setup()
-                                elif speed > self.speed_thresh:
-                                    self.speed_thresh = speed
-                            # when not saccading, check if the acceleration is above a threshold and switch
-                            else:
-                                heading = heading_smooth
-                                headings_smooth += [heading_smooth]
-                                if acceleration > self.acceleration_thresh:
-                                    self.speed_thresh = speed
-                                    if 'saccade_num' not in dir(self):
-                                        self.saccade_num = 0
-                                    self.saccade_num += 1
-                                    self.is_saccading = True
-                                    self.saccade_frame = np.copy(self.frame_num)
-                                    # print(f'saccade # {self.saccade_num}, frame {self.frame_num}')
-                        else:
-                            headings_smooth += [heading]
-                        self.display_data['heading_smooth'] += [headings_smooth]
+                            # check if acceleration is above a threshold
+                            if self.frame_num > 5:
+                                speed = abs(np.diff(self.kalman_filter.record[-4:-1]))
+                                acceleration = abs(np.diff(speed))
+                                acceleration *= self.framerate**2
+                                speed = np.nanmean(speed)
+                                # if sacccading, then check if the acceleration is below a threshold and switch
+                                if self.is_saccading:
+                                    if (speed < .1*self.speed_thresh) and (self.frame_num - self.saccade_frame > 10):
+                                        self.is_saccading = False
+                                        self.kalman_setup()
+                                    elif speed > self.speed_thresh:
+                                        self.speed_thresh = speed
+                                # when not saccading, check if the acceleration is above a threshold and switch
+                                else:
+                                    heading_smooth = self.kalman_filter.predict()
+                                    heading = heading_smooth
+                                    if acceleration > self.acceleration_thresh:
+                                        self.speed_thresh = speed
+                                        if 'saccade_num' not in dir(self):
+                                            self.saccade_num = 0
+                                        self.saccade_num += 1
+                                        self.is_saccading = True
+                                        self.saccade_frame = np.copy(self.frame_num)
+                                        # print(f'saccade # {self.saccade_num}, frame {self.frame_num}')
+                        headings_smooth += [heading_smooth]
+                self.display_data['heading_smooth'] += [headings_smooth]
                 self.display_data['com_shift'] += [diffs]
                 self.display_data['heading'] += [headings]
+                # now add the frames to the queue for recording data
+                if self.storing:
+                    for frame in frames:
+                        self.frames.put(frame)
                 return heading
         else:
             self.heading = 0
@@ -1175,7 +1167,8 @@ class Camera():
 
     def reset_data(self):
         for key in self.display_data.keys():
-            self.display_data[key] = []
+            if key != 'img':
+                self.display_data[key] = []
 
     def update_north(self, north):
         self.north = north
@@ -1193,6 +1186,8 @@ class Camera():
     def clear_headings(self):
         self.headings = []
         self.headings_smooth = []
+        self.reset_data()
+        self.reset_display()
 
 
 class TrackingTrial():
@@ -1314,7 +1309,11 @@ class TrackingTrial():
                 arr = arr()
             self.yaws += [arr]
             self.headings += [self.camera.get_headings()]
-            self.virtual_headings += [self.virtual_objects['fly_heading'].get_angles()]
+            try:
+                self.virtual_headings += [self.virtual_objects['fly_heading'].get_angles()]
+            except:
+                print(self.virtual_objects['fly_heading'].get_angles(), self.virtual_headings)
+                breakpoint()
             self.virtual_headings_test = []
             self.tests += [is_test]
             if info is not None:
