@@ -483,6 +483,7 @@ class VideoGUI(QtWidgets.QMainWindow):
             # center the objective image around (0, 0)
             transform = QtGui.QTransform()
             dy, dx = -self.img_height/2 - self.border_pad, -self.img_width/2 - self.border_pad
+            # shift the objective image based on the shift in the center of mass
             if self.com_shift is not None:
                 # move the center of mass dot
                 com_transform = QtGui.QTransform()
