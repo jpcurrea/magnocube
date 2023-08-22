@@ -103,9 +103,9 @@ class VideoGUI(QtWidgets.QMainWindow):
             config.read(self.config_fn)
             # self.genotype_list = config.getList('experiment_parameters','genotype')
             # check if parameters stored
-            keys = ['inner_r', 'outer_r', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'camera_fps']
-            vars = ['inner_radius', 'outer_radius', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'framerate']
-            dtypes = [float, float, float, bool, bool, bool, float, float]
+            keys = ['inner_r', 'outer_r', 'wing_r', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'camera_fps']
+            vars = ['inner_radius', 'outer_radius', 'wing_radius', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'framerate']
+            dtypes = [float, float, float, float, bool, bool, bool, float, float]
             for key, var, dtype in zip(keys, vars, dtypes):
                 if key in config['video_parameters'].keys():
                     if dtype == bool:
@@ -218,6 +218,15 @@ class VideoGUI(QtWidgets.QMainWindow):
                      width=linewidth))
         self.outer_ring.setBrush(pg.mkBrush(None))
         self.view_objective.addItem(self.outer_ring)
+        # wing ring
+        self.wing_ring = QtWidgets.QGraphicsEllipseItem(
+            self.wing_radius, self.wing_radius,
+            self.wing_radius * 2, self.wing_radius * 2)
+        self.wing_ring.setPen(
+            pg.mkPen(255 * yellow[0], 255 * yellow[1], 255 * yellow[2], 150,
+                     width=linewidth))
+        self.wing_ring.setBrush(pg.mkBrush(None))
+        self.view_objective.addItem(self.wing_ring)
         # plot the heading point and line
         posy = self.inner_radius - linewidth/2
         # plot the heading vector
@@ -280,13 +289,17 @@ class VideoGUI(QtWidgets.QMainWindow):
         # self.layout.addWidget(self.threshold_slider, 0, 1, 1, 1)
         self.sliders_layout.addWidget(self.threshold_slider)
         # 2. for controlling the inner ring
-        radius_min = min(self.img_height, self.img_width) / 2.
-        self.inner_slider = Slider(0, radius_min, var_lbl='inner r:')
+        radius_max = min(self.img_height, self.img_width) / 2.
+        self.inner_slider = Slider(0, radius_max, var_lbl='head r:')
         # self.layout.addWidget(self.inner_slider, 0, 2, 1, 1)
         self.sliders_layout.addWidget(self.inner_slider)
         # 3. control outer ring
-        self.outer_slider = Slider(0, radius_min, var_lbl='outer r:')
+        self.outer_slider = Slider(0, radius_max, var_lbl='tail r:')
         self.sliders_layout.addWidget(self.outer_slider)
+        self.menu_layout.addLayout(self.sliders_layout, 1)
+        # 4. control wing ring
+        self.wing_slider = Slider(0, radius_max, var_lbl='wing r:')
+        self.sliders_layout.addWidget(self.wing_slider)
         self.menu_layout.addLayout(self.sliders_layout, 1)
         # connect the radius sliders to the ring radius
         def update_val(value=None, abs_value=None, slider=self.inner_slider,
@@ -300,10 +313,13 @@ class VideoGUI(QtWidgets.QMainWindow):
             partial(update_val, slider=self.inner_slider, ring=self.inner_ring))
         self.outer_slider.slider.valueChanged.connect(
             partial(update_val, slider=self.outer_slider, ring=self.outer_ring))
+        self.wing_slider.slider.valueChanged.connect(
+            partial(update_val, slider=self.wing_slider, ring=self.wing_ring))
         # set the slider to default values
         self.threshold_slider.setLabelValue(abs_value=self.thresh)
         self.inner_slider.setLabelValue(abs_value=self.inner_radius)
         self.outer_slider.setLabelValue(abs_value=self.outer_radius)
+        self.wing_slider.setLabelValue(abs_value=self.wing_radius)
 
     def setup_kalman_menu(self):
         # make a layout for the Kalman Filter
@@ -409,7 +425,7 @@ class VideoGUI(QtWidgets.QMainWindow):
             else:
                 frame[..., :3] = 255 - frame[..., :3]
         # save the image for troubleshooting
-        # plt.imsave("test.png", frame)
+        # plt.imsave("test.png", frame.astype('uint8'))
         # update the image
         if self.rotate270:
             self.image_objective.setImage(frame[::-1, ::-1])
@@ -422,6 +438,8 @@ class VideoGUI(QtWidgets.QMainWindow):
         """Update the data used for plotting."""
         any_changed = False
         for key, vals in data.items():
+            # passed data include 1) a frame ('img'), 2) raw and smoothed heading data ('heading', 'heading_smooth')
+            # 3) the center of mass shift ('com_shift'), and 4) the wing angle data
             if not isinstance(vals, list):
                 print(key, vals)
             if len(vals) > 0:
@@ -433,7 +451,7 @@ class VideoGUI(QtWidgets.QMainWindow):
                             vals = [np.pi - val for val in vals]
                             data[key] = vals
                         val = vals[-1]
-                        # store as an attribute
+                        # store current value as an attribute
                         self.__setattr__(key, val)
                         if key in self.data.keys():
                             self.data[key] += [vals]
@@ -527,8 +545,8 @@ class VideoGUI(QtWidgets.QMainWindow):
     def save_vars(self):
         config = configparser.ConfigParser()
         config.read(self.config_fn)
-        vars = ['inner_r', 'outer_r', 'thresh'] 
-        vals = [self.inner_slider.x, self.outer_slider.x, self.threshold_slider.x]
+        vars = ['inner_r', 'outer_r', 'wing_r', 'thresh'] 
+        vals = [self.inner_slider.x, self.outer_slider.x, self.wing_slider.x, self.threshold_slider.x]
         for var, val in zip(vars, vals):
             config.set('video_parameters', var, str(val))
         # set the new values
@@ -538,10 +556,6 @@ class VideoGUI(QtWidgets.QMainWindow):
         # save experiment parameter options
         for key, val in self.experiment_parameters.items():
             config.set('experiment_parameter_options', key, val.currentText())
-        # if 'sex' in dir(self):
-        #     config.set('experiment_parameters', 'sex', self.sex)
-        # if 'genotype' in dir(self):
-        #     config.set('experiment_parameters', 'genotype', self.genotype)
         # set the kalman settings
         for var, val in zip(['kalman_jerk_std', 'kalman_noise'], ['kalman_jerk_std_box', 'kalman_noise_box']):
             if val in dir(self):
@@ -623,6 +637,7 @@ class FrameUpdater():
             # extract the new frame and the headings data
             img = data['img']
             heading, heading_smooth, com_shift = data['heading'], data['heading_smooth'], data['com_shift']
+            # print(f"shift = {com_shift}")
             # update the frame and heading
             self.gui.update_frame(img)
             # update the stored data
