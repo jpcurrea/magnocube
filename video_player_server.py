@@ -7,6 +7,7 @@ import pyqtgraph as pg
 from PyQt5 import QtWidgets, QtCore, QtGui
 import sys
 import threading
+import matplotlib
 from matplotlib import pyplot as plt
 import skvideo
 import struct
@@ -59,7 +60,69 @@ class Slider(QtWidgets.QWidget):
                     (float(value) / (self.slider.maximum() - self.slider.minimum()))
                     * (self.maximum - self.minimum))
             self.x = int(round(self.x))
-        self.label.setText(f"{self.var_lbl}\n{self.x:d}")
+        self.label.setText(f"{self.var_lbl}\n{self.x:d}", )
+
+
+class Marker():
+    def __init__(self, name, coord, color, menu_layout, window, size=10):
+        """A 2D marker and the corresponding radio button.
+        
+        Parameters
+        ----------
+        name : str
+            The name of the marker.
+        coord : tuple
+            The x, y coordinates of the marker.
+        color : tuple
+            The RGBA color of the marker.
+        menu_layout : QtWidgets layout
+
+        """
+        # store attributes
+        name = name.replace("_", " ")
+        self.name, self.coord, self.color = name, coord, color
+        self.menu, self.window = menu_layout, window
+        # plot the marker
+        self.marker = QtWidgets.QGraphicsEllipseItem(
+            coord[0] - size/2, coord[1]-size/2, size, size)
+        self.standby_pen = pg.mkPen(
+            255 * color[0], 255 * color[1], 255 * color[2], 255,
+            width=3)
+        self.active_pen = pg.mkPen(
+            255 * color[0], 255 * color[1], 255 * color[2], 255,
+            width=6)
+        self.marker.setPen(self.standby_pen)
+        self.marker.setBrush(
+            pg.mkBrush(255 * color[0], 255 * color[1], 255 * color[2], 255))
+        self.window.addItem(self.marker)
+        # add the button to the menu
+        self.selected = False
+        self.button = QtWidgets.QRadioButton(self.name)
+        self.button.toggled.connect(self.toggle)
+        # color_str = f"rgb({255*int(color[0]):.1f}, {255*int(color[1]):.1f}, {255*int(color[2]):.1f})"
+        # self.button.setStyleSheet("QRadioButton::indicator"
+        #                           "{"
+        #                           f"background-color : rgb({255*int(color[0]):.1f}, {255*int(color[1]):.1f}, {255*int(color[2]):.1f})"
+        #                           "}")
+        self.button.setStyleSheet(f"color: white")
+        self.menu.addWidget(self.button, 1)
+
+    def update_coord(self, coord):
+        """Update the coordinate of the marker."""
+        # store the new coordinate
+        self.coord[:] = coord
+        # update the marker coordinate
+        self.marker.setPos(coord[0], coord[1])
+
+    def toggle(self):
+        # if checked, use the large marker
+        if self.button.isChecked():
+            self.selected = True
+            self.marker.setPen(self.active_pen)
+        # otherwise, use the small marker
+        else:
+            self.selected = False
+            self.marker.setPen(self.standby_pen)
 
 
 class VideoGUI(QtWidgets.QMainWindow):
@@ -113,6 +176,12 @@ class VideoGUI(QtWidgets.QMainWindow):
                     else:
                         val = dtype(config['video_parameters'][key])
                     setattr(self, var, val)
+            # and grab the stored marker parameters
+            self.marker_coords = {}
+            for key, val in config['fly_markers'].items():
+                vals = val.split(",")
+                vals = [int(val) for val in vals]
+                self.marker_coords[key] = np.array(vals)
         self.display_interval = 1000. / self.display_rate
         # optionally rotate the image
         # if self.rotate270:
@@ -178,7 +247,7 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.layout.addWidget(self.window, 4)
         # create a vertical layout for placing the different settings menus
         self.menu_widget = QtWidgets.QWidget()
-        self.menu_widget.setFixedWidth(230)
+        self.menu_widget.setFixedWidth(250)
         self.menu_layout = QtWidgets.QVBoxLayout()
         self.menu_widget.setLayout(self.menu_layout)
         self.layout.addWidget(self.menu_widget)
@@ -189,6 +258,8 @@ class VideoGUI(QtWidgets.QMainWindow):
         ## Slider Options ##
         self.setup_sliders()
         ## todo: Exposure Options ##
+        ## Marker Options ##
+        # self.setup_fly_markers()
         ## Kalman Options ##
         self.setup_kalman_menu()
         ## Log Options ##
@@ -205,7 +276,7 @@ class VideoGUI(QtWidgets.QMainWindow):
             self.inner_radius, self.inner_radius,
             self.inner_radius * 2, self.inner_radius * 2)
         self.inner_ring.setPen(
-            pg.mkPen(255 * blue[0], 255 * blue[1], 255 * blue[2], 150,
+            pg.mkPen(255 * red[0], 255 * red[1], 255 * red[2], 150,
                      width=linewidth))
         self.inner_ring.setBrush(pg.mkBrush(None))
         self.view_objective.addItem(self.inner_ring)
@@ -223,7 +294,7 @@ class VideoGUI(QtWidgets.QMainWindow):
             self.wing_radius, self.wing_radius,
             self.wing_radius * 2, self.wing_radius * 2)
         self.wing_ring.setPen(
-            pg.mkPen(255 * yellow[0], 255 * yellow[1], 255 * yellow[2], 150,
+            pg.mkPen(255 * blue[0], 255 * blue[1], 255 * blue[2], 150,
                      width=linewidth))
         self.wing_ring.setBrush(pg.mkBrush(None))
         self.view_objective.addItem(self.wing_ring)
@@ -389,22 +460,32 @@ class VideoGUI(QtWidgets.QMainWindow):
             vals = [val for val in config['experiment_parameter_options'][param].split(',')]
             combobox.addItems(vals)
             combobox.setStyleSheet("color: white; background-color: black")
+            # set the combobox based on the saved experiment parameter
+            current_val = config['experiment_parameters'][param]
+            combobox.setCurrentText(current_val)
             combobox.currentIndexChanged.connect(self.save_vars)
             self.experiment_parameters[param] = combobox
             self.buttons_layout.addWidget(combobox, 1)
-        # add a sex input box
-        # self.sex_selector = QtWidgets.QComboBox()
-        # self.sex_selector.addItems(['female', 'male'])
-        # self.sex_selector.setStyleSheet("color: white; background-color: black")
-        # self.sex = self.sex_selector.currentText()
-        # self.buttons_layout.addWidget(self.sex_selector, 1)
-        # add a genotype input box
-        # self.genotype_selector = QtWidgets.QComboBox()
-        # genotype_list = json.loads(config.get("experiment_parameters","genotype"))
-        # self.genotype_selector.addItems(genotype_list)
-        # self.genotype_selector.setStyleSheet("color: white; background-color: black")
-        # self.genotype = self.genotype_selector.currentText()
-        # self.buttons_layout.addWidget(self.genotype_selector, 1)
+
+    def setup_fly_markers(self, size=10, cmap='viridis'):
+        """Place markers provided """
+        # todo: add a custom mouseClickRelease method and list of markers
+        # to the view_relative window
+        breakpoint()
+        # make a layout for the buttons
+        self.marker_menu = QtWidgets.QVBoxLayout()
+        # add layouts to the main layout hierarchicaly
+        self.menu_layout.addLayout(self.marker_menu, 1)
+        self.markers = {}
+        # get nice colors for the markers using the default colormap
+        cmap = matplotlib.colormaps[cmap]
+        num_markers = len(self.marker_coords.keys())
+        colors = cmap(np.linspace(0, 1, num_markers))
+        # plot each of the markers and store as an attribute
+        for num, ((key, coords), color) in enumerate(zip(self.marker_coords.items(), colors)):
+            # add the marker to both the subjective view and marker menu
+            self.markers[key] = Marker(key, coords, color, self.marker_menu, 
+                                       self.view_relative)
 
     def update_frame(self, frame):
         # check if the frame size chaged. if so, we've added a border
@@ -440,8 +521,8 @@ class VideoGUI(QtWidgets.QMainWindow):
         for key, vals in data.items():
             # passed data include 1) a frame ('img'), 2) raw and smoothed heading data ('heading', 'heading_smooth')
             # 3) the center of mass shift ('com_shift'), and 4) the wing angle data
-            if not isinstance(vals, list):
-                print(key, vals)
+            # if not isinstance(vals, list):
+            #     print(key, vals)
             if len(vals) > 0:
                 vals = np.concatenate(vals)
                 if len(vals) > 0:
@@ -491,7 +572,7 @@ class VideoGUI(QtWidgets.QMainWindow):
         # if self.rotate270:
         #     heading += np.pi/2
         if np.isnan(self.heading):
-            print(self.data['heading'])
+            # print(self.data['heading'])
             self.tracking_active = False
             self.head_line.setPen(self.standby_pen)
         else:
@@ -542,6 +623,24 @@ class VideoGUI(QtWidgets.QMainWindow):
                         xs = np.linspace(0, self.current_time - self.start_time, len(vals_arr))
                         self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
 
+    def mouseReleaseEvent(self, event):
+        """Setup actions for clicking in the window."""
+        # if the click happens within the Relative View window, update the 
+        # active marker coordinates to the clicked location 
+        # check if the click is within the view_relative window
+        print('click!')
+        pos = event.pos()
+        if pos in self.view_relative.rect():
+            active_marker = None
+            for name, marker in self.markers.items():
+                if marker.selected:
+                    active_marker = marker
+            # if one is selected, update its coordinates using the 
+            # local coordinate of the plot
+            if active_marker is not None:
+                active_marker.update_coords(event.localPos())
+
+
     def save_vars(self):
         config = configparser.ConfigParser()
         config.read(self.config_fn)
@@ -555,7 +654,7 @@ class VideoGUI(QtWidgets.QMainWindow):
                     str(self.invert_check.isChecked()))
         # save experiment parameter options
         for key, val in self.experiment_parameters.items():
-            config.set('experiment_parameter_options', key, val.currentText())
+            config.set('experiment_parameters', key, val.currentText())
         # set the kalman settings
         for var, val in zip(['kalman_jerk_std', 'kalman_noise'], ['kalman_jerk_std_box', 'kalman_noise_box']):
             if val in dir(self):

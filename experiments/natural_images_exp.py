@@ -58,14 +58,17 @@ num_frames = DURATION * hc.scheduler.freq
 # keep track of data as we run experiments
 hc.camera.update_heading()
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
-# tracker.add_virtual_object(name='bg', motion_gain=-1,
-#                            start_angle=hc.camera.update_heading, object=True)
+tracker.add_virtual_object(name='bg', motion_gain=0,
+                           start_angle=hc.camera.update_heading, object=True)
 
 # load the images
-fns = os.listdir("./experiments/natural_images")
-fns = [os.path.join('experiments', 'natural_images', fn) for fn in fns]
+# fns = os.listdir("./experiments/natural_images")
+# fns = [os.path.join('experiments', 'natural_images', fn) for fn in fns]
+fns = os.listdir("./experiments/calibrations")
+fns = [os.path.join('experiments', 'calibrations', fn) for fn in fns]
 fns = [os.path.abspath(fn) for fn in fns]
-fns = [fn for fn in fns if fn.endswith('.jpg')]
+# fns = [fn for fn in fns if fn.endswith('.jpg')]
+fns = [fn for fn in fns if fn.endswith('.png')]
 imgs = [load_image(fn) for fn in fns]
 backgrounds = []
 for img in imgs:
@@ -109,7 +112,7 @@ exp_starts = [[hc.window.set_far, 3],
               [tracker.h5_setup],
               [hc.camera.storing_start, -1, FOLDER, None, True],
               [tracker.store_camera_settings],
-              [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1, hc.camera.update_heading],
+              [tracker.virtual_objects['fly_heading'].set_motion_parameters, 0, hc.camera.update_heading],
             #   [tracker.virtual_objects['bg'].set_motion_parameters, -1, hc.camera.update_heading],
               [hc.camera.clear_headings],
               [tracker.add_exp_attr, 'video_fn', hc.camera.get_save_fn],
@@ -130,6 +133,7 @@ tracker.start_time = time.time()
 for bg, fn in zip(backgrounds, fns):
     starts = [
         [bg.switch, True],
+        [tracker.virtual_objects['bg'].add_motion, orientations],
         [hc.camera.import_config],
         [hc.camera.clear_headings],
         [hc.window.record_start],
@@ -140,7 +144,7 @@ for bg, fn in zip(backgrounds, fns):
         [hc.camera.get_background, hc.window.get_frame],
         [tracker.update_objects, hc.camera.update_heading],
         [bg.set_contrast, contrasts],
-        [bg.set_ry, orientations],
+        [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
         # [bar.set_ry, tracker.virtual_objects['bar'].get_angle],
         [hc.window.record_frame]
     ]

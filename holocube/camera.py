@@ -52,8 +52,8 @@ else:
     cam_list = []
 
 hq_video = "H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4"
-if True:
-# if len(cam_list) == 0:
+# if True:
+if len(cam_list) == 0:
     cam_list = [hq_video]
     pyspin_loaded = False
 
@@ -477,6 +477,8 @@ class Camera():
         """
         # import the camera and setup the GenICam nodemap for PySpin
         self.frame_num = 0
+        self.frames_stored = 0
+        self.buffer_ind = 0
         self.frames_to_process = []
         self.wing_analysis = False
         self.saccade_trigger = saccade_trigger
@@ -595,6 +597,7 @@ class Camera():
                         PySpin.IsReadable(node_acquisition_framerate))
             assert is_readable, "Unable to get camera framerate"
             self.framerate = node_acquisition_framerate.GetValue()
+        print(f"fps = {self.framerate}")
 
     def get_video_params(self):
         """Grab important parameters of the video."""
@@ -667,9 +670,12 @@ class Camera():
             self.frame = self.camera.GetNextImage(timeout).GetData()
             # store 
             # assume the buffer is large enough to store the frames
-            assert self.buffer_ind < len(self.buffer), "Buffer is too small to store frames at this framerate"
-            self.buffer[self.buffer_ind] = self.frame
+            if self.buffer_ind >= len(self.buffer):
+                self.buffer_ind = 0
+            # assert self.buffer_ind < len(self.buffer), "Buffer is too small to store frames at this framerate"
+            self.buffer[self.buffer_ind] = self.frame.reshape((self.height, self.width))
             self.buffer_ind += 1
+            # self.frame_num += 1
             # self.frames_to_process += [self.frame]
             # if self.storing:
             #     self.frames.put(self.frame)
@@ -688,17 +694,19 @@ class Camera():
         self.frame_num = 0
         #self.frames = []
         self.num_frames = self.video.getShape()[0]
+        # self.framerate = 120
         while self.capturing:
             # grab frame from the video
             # self.frame = self.video[self.frame_num % len(self.video)]
             self.frame = self.video.__next__()
             if self.frame.ndim > 2:
                 self.frame = self.frame[..., 0]
-            assert self.buffer_ind < len(self.buffer), "Buffer is too small to store frames at this framerate"
+            # assert self.buffer_ind < len(self.buffer), "Buffer is too small to store frames at this framerate"
             self.buffer[self.buffer_ind] = self.frame
             self.buffer_ind += 1
+            self.buffer_ind %= len(self.buffer)
             # self.frames_to_process += [self.frame]
-            self.update_heading()
+            # self.update_heading()
             if self.frame_num > self.num_frames:
                 self.clear_headings()
                 self.reset_display()
@@ -708,7 +716,7 @@ class Camera():
             self.frame_num += 1
             time.sleep(1./self.framerate)
 
-    def capture_start(self, buffer_size=10):
+    def capture_start(self, buffer_size=100):
         """Begin capturing, processing, and storing frames in a Thread."""
         self.frames = Queue()
         # make an array buffer to temporarily store frames
@@ -757,6 +765,8 @@ class Camera():
         self.headings_smooth = []
         self.heading_smooth = self.heading
         self.storing = True
+        # import the gui-set configuration before storing frames
+        self.import_config()
         if not self.dummy and self.capturing:
             if save_fn is None:
                 save_fn = f"{timestamp()}.mp4"
@@ -784,12 +794,17 @@ class Camera():
     def store_frames(self):
         """A thread to send frames to the ffmpeg writer"""
         print("start storing frames")
-        while self.frames_stored < self.frame_num:
+        while self.storing:
+            self.store_frame()
+            time.sleep(.002)
+
+    def store_frame(self):
+        """Store the next frame."""
+        if self.frames_stored < self.frame_num:
             frame = self.frames.get().reshape(self.height, self.width)
             frame = frame.astype('uint8')
             self.video_writer.writeFrame(frame)
             self.frames_stored += 1
-            time.sleep(.002)
 
     def storing_stop(self):
         self.storing = False
@@ -801,8 +816,9 @@ class Camera():
                 cancel = True
             if not cancel:
                 while self.frames_stored < total_frames:
+                    self.store_frame()
                     print_progress(self.frames_stored, self.frame_num)
-        if "save_fn" in dir(self) and not self.dummy and not cancel:
+        if "save_fn" in dir(self) and not self.dummy:
             if 'video_writer' in dir(self):
                 self.video_writer.close()
                 print(f"{self.frames_stored} frames saved in {self.save_fn}")
@@ -815,9 +831,16 @@ class Camera():
                 self.frames_stored = len(self.frames)
                 # self.storing_thread = threading.Thread(target=self.store_frames)
                 # self.storing_thread.start()
-        elif 'video_writer' in dir(self) and cancel:
-            self.video_writer.close()
-            os.remove(self.save_fn)
+            if cancel:
+                if self.frames_stored > 0:
+                    self.video_writer.close()
+                os.remove(self.save_fn)
+        # elif 'video_writer' in dir(self) and cancel:
+        #     try:
+        #         self.video_writer.close()
+        #     except:
+        #         pass
+            # os.remove(self.save_fn)
         # assume the camera has frames stored
         # assert len(self.frames) > 0, ("No frames stored! First try running "
         #                               +f"{self.storing_start}")
@@ -991,19 +1014,19 @@ class Camera():
                         val = dtype(self.vid_params[key])
                     setattr(self, key, val)
                 # get the inner ring indices and angles
-                self.inner_inds = self.img_dists <= (self.inner_r + ring_thickness/2.)
-                self.inner_inds *= self.img_dists > (self.inner_r - ring_thickness/2.)
-                self.inner_inds = np.where(self.inner_inds)
+                inner_inds = self.img_dists <= (self.inner_r + ring_thickness/2.)
+                inner_inds *= self.img_dists > (self.inner_r - ring_thickness/2.)
+                self.inner_inds = np.where(inner_inds)
                 self.inner_angs = self.img_angs[self.inner_inds]
                 # get the outer ring indices and angles
-                self.outer_inds = self.img_dists <= (self.outer_r + ring_thickness/2.)
-                self.outer_inds *= self.img_dists > (self.outer_r - ring_thickness/2.)
-                self.outer_inds = np.where(self.outer_inds)
+                outer_inds = self.img_dists <= (self.outer_r + ring_thickness/2.)
+                outer_inds *= self.img_dists > (self.outer_r - ring_thickness/2.)
+                self.outer_inds = np.where(outer_inds)
                 self.outer_angs = self.img_angs[self.outer_inds]
                 # get the wing ring indices and angles
-                self.wing_inds = self.img_dists <= (self.wing_r + ring_thickness/2.)
-                self.wing_inds *= self.img_dists > (self.wing_r - ring_thickness/2.)
-                self.wing_inds = np.where(self.wing_inds)
+                wing_inds = self.img_dists <= (self.wing_r + ring_thickness/2.)
+                wing_inds *= self.img_dists > (self.wing_r - ring_thickness/2.)
+                self.wing_inds = np.where(wing_inds)
                 self.wing_angs = self.img_angs[self.wing_inds]
                 # get experiment specific information
                 self.exp_params = info['experiment_parameter_options']
@@ -1025,26 +1048,37 @@ class Camera():
         # the center of mass calculations may be the slowest part here. CUDA should 
         # help with that.
         if self.playing and self.buffer_ind > 0:
-            try:
-                self.import_config()
-            except:
-                pass
+            # print(self.buffer_ind)
+            # try:
+            #     self.import_config()
+            # except:
+            #     pass
             """Use stored radii to approximate the heading."""
             # 0. grab current value of pertinent variabls
             thresh, invert = self.thresh, self.invert
             # use index numbers instead of a boolean array, because it's faster to translate
-            outer_inds, outer_angs = self.outer_inds, self.outer_angs
-            if outer_inds[0].size > outer_angs.size:
-                outer_inds = (outer_inds[0][:outer_angs.size], outer_inds[1][:outer_angs.size])
+            # outer_inds, outer_angs = np.copy(self.outer_inds), np.copy(self.outer_angs)
+            # inner_inds, inner_inds = np.copy(self.inner_inds), np.copy(self.inner_angs)
+            # if self.outer_inds[0].size > self.outer_angs.size:
+            #     outer_inds = (outer_inds[0][:outer_angs.size], outer_inds[1][:outer_angs.size])
             # outer_inds, outer_angs = self.outer_inds, self.outer_angs
             # inner_inds, inner_angs = self.inner_inds, self.inner_angs
             # frame = self.frame
             # frames = [self.frames_to_process[-1]]
             frames = np.copy(self.buffer[0: self.buffer_ind])
+            try:
+                inner_ring = frames[:, self.inner_inds[0], self.inner_inds[1]]
+            except:
+                print(f"frames.shape={self.buffer.shape}, inner_inds[0].shape={self.inner_inds[0].shape}, buffer_ind={self.buffer_ind}")
+                # print(self.inner_inds)
             # todo: grab important frame values because it will likely be replaced by the next frame soon
             # use the outer and inner inds
-            outer_ring = frames[:, outer_inds[0], outer_inds[1]]
-            inner_ring = frames[:, self.inner_inds[0], self.inner_inds[1]]
+            # outer_ring = frames[:, outer_inds[0], outer_inds[1]]
+            try:
+                outer_ring = frames[:, self.outer_inds[0], self.outer_inds[1]]
+            except:
+                print(f"frames.shape={self.buffer.shape}, inner_inds[0].shape={self.outer_inds[0].shape}, buffer_ind={self.buffer_ind}")
+                # print(self.outer_inds)
             # get boolean mask for center of mass calculation
             if invert:
                 frame_mask = frames < thresh
@@ -1078,8 +1112,8 @@ class Camera():
                     head = outer_ring < thresh
                 else:
                     head = outer_ring > thresh
-                if len(outer_angs) == len(head):
-                    head_angs = outer_angs[np.newaxis][head]
+                if len(self.outer_angs) == len(head):
+                    head_angs = self.outer_angs[np.newaxis][head]
                     print(head_angs)
                     headings = scipy.stats.circmean(
                         head_angs, low=-np.pi, high=np.pi, axis=1)
@@ -1100,7 +1134,7 @@ class Camera():
                 tail_dir = np.zeros(len(tail), dtype=float)
                 for num, (ind) in enumerate(tail):
                     if any(ind):
-                        mean = scipy.stats.circmean(outer_angs[ind], low=-np.pi, high=np.pi)
+                        mean = scipy.stats.circmean(self.outer_angs[ind], low=-np.pi, high=np.pi)
                     else:
                         mean = 0
                     # tail_dir += [mean]
@@ -1184,6 +1218,7 @@ class Camera():
             #     headings += 2 * np.pi
             # store
             self.heading = copy.copy(headings[-1])
+            self.headings = np.append(self.headings, headings)
             # headings += [heading]
             if self.kalman:
                 headings_smooth = []
@@ -1200,31 +1235,43 @@ class Camera():
                         #     self.kalman_setup()
                         #     self.kalman_filter.store(heading)
                     heading_smooth = headings_smooth[-1]
+                    diff = heading - heading_smooth
+                    if abs(diff) > 2*np.pi:
+                        new_diff = diff // 2*np.pi
+                        heading_smooth += new_diff
                     # check if acceleration is above a threshold
-                    if len(self.kalman_filter.record) > 4:
+                    if len(self.kalman_filter.record) > 10:
                         speed = abs(np.diff(self.kalman_filter.record[-4:-1], axis=0))
                         acceleration = abs(np.diff(speed))
                         acceleration *= self.framerate**2
-                        speed = np.nanmean(speed)
-                        # if sacccading, then check if the acceleration is below a threshold and switch
-                        if self.is_saccading:
-                            if (speed < .1*self.speed_thresh) and (self.frame_num - self.saccade_frame > 10):
-                                self.is_saccading = False
-                                self.kalman_setup()
-                            elif speed > self.speed_thresh:
-                                self.speed_thresh = speed
-                        # when not saccading, check if the acceleration is above a threshold and switch
-                        else:
-                            # heading_smooth = self.kalman_filter.predict()
-                            heading = heading_smooth
-                            if acceleration > self.acceleration_thresh:
-                                self.speed_thresh = speed
-                                if 'saccade_num' not in dir(self):
-                                    self.saccade_num = 0
-                                self.saccade_num += 1
-                                self.is_saccading = True
-                                self.saccade_frame = np.copy(self.frame_num)
-                                # print(f'saccade # {self.saccade_num}, frame {self.frame_num}')
+                        if np.any(np.isnan(speed)):
+                            self.kalman_setup()
+                            self.is_saccading = False
+                        else:                        
+                            speed = np.nanmean(speed)
+                            # if sacccading, then check if the acceleration is below a threshold and switch
+                            if self.is_saccading:
+                                if (speed < .1*self.speed_thresh) and (self.frame_num - self.saccade_frame > 10):
+                                    self.is_saccading = False
+                                    self.kalman_setup()
+                                elif speed > self.speed_thresh:
+                                    self.speed_thresh = speed
+                            # when not saccading, check if the acceleration is above a threshold and switch
+                            else:
+                                # heading_smooth = self.kalman_filter.predict()
+                                self.heading = heading_smooth
+                                if acceleration > self.acceleration_thresh:
+                                    self.speed_thresh = speed
+                                    if 'saccade_num' not in dir(self):
+                                        self.saccade_num = 0
+                                    self.saccade_num += 1
+                                    self.is_saccading = True
+                                    self.saccade_frame = np.copy(self.frame_num)
+                                    # print(f'saccade # {self.saccade_num}, frame {self.frame_num}')
+                else:
+                    for heading in headings:
+                        headings_smooth += [heading]
+                self.headings_smooth = np.append(self.headings_smooth, headings_smooth)
                 # headings_smooth += [heading_smooth]
             if self.wing_analysis:
                 headings_smooth = np.array(headings_smooth)
@@ -1298,9 +1345,9 @@ class Camera():
             if self.storing:
                 for frame in frames:
                     self.frames.put(frame)
+                    self.frame_num += 1
             return heading
         else:
-            self.heading = 0
             return self.heading
 
     def reset_data(self):
@@ -1371,6 +1418,7 @@ class TrackingTrial():
         self.tests = []
         self.yaws = []  # the list of yaw arrays per test from holocube
         self.headings = []  # the list of headings per test from the camera
+        self.headings_smooth = []  # the list of headings per test from the camera
         self.heading = 0
         self.virtual_headings_test = []  # the list of headings per test from the camera
         self.virtual_headings = []  # the list of headings per test from the camera
@@ -1447,8 +1495,11 @@ class TrackingTrial():
                 arr = arr()
             self.yaws += [arr]
             self.headings += [self.camera.get_headings()]
-            self.virtual_headings += [self.virtual_objects['fly_heading'].get_angles()]
-            print(self.virtual_objects['fly_heading'].get_angles(), self.virtual_headings)
+            self.headings_smooth += [self.camera.get_headings_smooth()]
+            # try:
+            #     self.virtual_headings += [self.virtual_objects['fly_heading'].get_angles()]
+            # except:
+            #     breakpoint()
             self.virtual_headings_test = []
             self.tests += [is_test]
             if info is not None:
@@ -1486,8 +1537,8 @@ class TrackingTrial():
                     row[:len(test)] = test
                 self.virtual_headings = new_virtual_headings
             for vals, label in zip(
-                    [self.yaws, self.headings, self.virtual_headings],
-                    ['yaw', 'camera_heading', 'virtual_angle']):
+                    [self.yaws, self.headings, self.headings_smooth, self.virtual_headings],
+                    ['yaw', 'camera_heading', 'camera_heading_smooth' 'virtual_angle']):
                 # remove any empty dimensions
                 if len(vals) > 1:
                     # convert the camera and display headings into 2D arrays
@@ -1529,7 +1580,10 @@ class TrackingTrial():
                 # make a nans array and store the values
                 sub_val = vals[0]
                 while isinstance(sub_val, (list, tuple)):
-                    sub_val = sub_val[0]
+                    try:
+                        sub_val = sub_val[0]
+                    except:
+                        breakpoint()
                 if isinstance(sub_val, str):
                     str_length = max([len(val) for val in vals])
                     dtype = ('S', str_length)

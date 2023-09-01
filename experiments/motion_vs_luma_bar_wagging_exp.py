@@ -197,7 +197,8 @@ for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
                 [tracker.reset_virtual_object_motion],
                 [tracker.add_test_data, hc.window.record_stop,
                  {'bg_texture': bg_lbl, 'bar_texture': bar_lbl, 'side': eye_side, 
-                  'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time}, True],
+                  'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time,
+                  'bar_position': tracker.virtual_objects['bar'].get_angles}, True],
                 [hc.window.reset_rot],
             ]
             hc.scheduler.add_test(num_frames, starts, middles, ends)
