@@ -1028,9 +1028,6 @@ class Camera():
                 wing_inds *= self.img_dists > (self.wing_r - ring_thickness/2.)
                 self.wing_inds = np.where(wing_inds)
                 self.wing_angs = self.img_angs[self.wing_inds]
-                # get experiment specific information
-                self.exp_params = info['experiment_parameter_options']
-                self.male = self.exp_params == 'male'
                 # update the kalman filter if values changed
                 if 'kalman_filter' in dir(self):
                     std_changed = self.kalman_filter.jerk_std != self.kalman_jerk_std
@@ -1038,8 +1035,8 @@ class Camera():
                     if std_changed or noise_changed:
                         self.kalman_setup()
             # import user-chosen experiment parameterstoo
-            if "experiment_parameter_options" in info.keys():
-                self.exp_params = info['experiment_parameter_options']
+            if "experiment_parameters" in info.keys():
+                self.exp_params = info['experiment_parameters']
 
     def update_heading(self, absolute=False):
         # todo: speed up this stage using CUDA to process at a much higher framerate
