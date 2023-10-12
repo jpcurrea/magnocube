@@ -702,11 +702,11 @@ class Camera():
             if self.frame.ndim > 2:
                 self.frame = self.frame[..., 0]
             # assert self.buffer_ind < len(self.buffer), "Buffer is too small to store frames at this framerate"
+            if self.buffer_ind >= len(self.buffer):
+                self.buffer_ind = 0
             self.buffer[self.buffer_ind] = self.frame
             self.buffer_ind += 1
-            self.buffer_ind %= len(self.buffer)
             # self.frames_to_process += [self.frame]
-            # self.update_heading()
             if self.frame_num > self.num_frames:
                 self.clear_headings()
                 self.reset_display()
@@ -715,6 +715,9 @@ class Camera():
                 self.frame_num = 0
             self.frame_num += 1
             time.sleep(1./self.framerate)
+            if self.frame_num % 4 == 0:
+                self.update_heading()
+                self.import_config()
 
     def capture_start(self, buffer_size=100):
         """Begin capturing, processing, and storing frames in a Thread."""
@@ -864,6 +867,12 @@ class Camera():
 
     def display_start(self):
         """Start the video_player_server.py subprocess to run in background."""
+        self.frames = Queue()
+        self.frame_num = 0
+        self.frames_stored = 0
+        self.headings = []
+        self.headings_smooth = []
+        self.heading_smooth = self.heading
         # make a dictionary to keep track of data to be PIPEd to the video player
         self.display_data = {'heading': [], 'heading_smooth': [], 'com_shift': [], 
                              'left_wing_amp': [], 'right_wing_amp': [], 'head_angle': [],
@@ -1339,10 +1348,10 @@ class Camera():
                 self.display_data['com_shift'] += [diffs]
                 self.display_data['heading'] += [headings]
             # now add the frames to the queue for recording data
-            if self.storing:
-                for frame in frames:
+            for frame in frames:
+                if self.storing:
                     self.frames.put(frame)
-                    self.frame_num += 1
+                self.frame_num += 1
             return heading
         else:
             return self.heading
