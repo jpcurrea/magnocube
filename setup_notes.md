@@ -11,4 +11,9 @@ For setting up a magnocube:
     - the goal of the DAQ is to keep track of the exact time when the camera and the projector each trigger a frame. So the program will use the DAQ to measure 2 time series with the exact time when it receives a projector or camera trigger. This will be saved as another dataset in the .h5 file. 
 2. FLIR software: 
     - install SpinView and keep track of the version number
-
+3. pyglet:
+    - pip install version 1.5.27
+4. ffmpeg:
+    - install the latest version of ffmpeg at ffmpeg.org
+5. holocube:
+    - git clone the file 
