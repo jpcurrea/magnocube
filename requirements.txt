@@ -1,7 +1,7 @@
 h5py
 matplotlib
 numpy
-pyglet
+pyglet==1.5.27
 pyqtgraph
 PyQt5
 scikit-image
