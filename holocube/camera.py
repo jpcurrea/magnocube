@@ -480,6 +480,7 @@ class Camera():
         # import the camera and setup the GenICam nodemap for PySpin
         self.frame_num = 0
         self.frames_stored = 0
+        self.buffer_start, self.buffer_stop = 0, 0
         self.buffer_ind = 0
         self.frames_to_process = []
         self.wing_analysis = wing_analysis
@@ -658,7 +659,7 @@ class Camera():
         self.buffer = np.array(self.buffer)
         return self.buffer
 
-    def capture(self, timeout=1000, buffer_size=10):
+    def capture(self, timeout=1000):
         """Simple loop for collecing frames. Alternative using list append."""
         # until stop signal, capture frames in the buffer
         self.frame_num = 0
@@ -672,11 +673,14 @@ class Camera():
             self.frame = self.camera.GetNextImage(timeout).GetData()
             # store 
             # assume the buffer is large enough to store the frames
-            if self.buffer_ind >= len(self.buffer):
-                self.buffer_ind = 0
+            # if self.buffer_ind >= len(self.buffer):
+            #     self.buffer_ind = 0
             # assert self.buffer_ind < len(self.buffer), "Buffer is too small to store frames at this framerate"
-            self.buffer[self.buffer_ind] = self.frame.reshape((self.height, self.width))
-            self.buffer_ind += 1
+            # self.buffer[self.buffer_ind] = self.frame.reshape((self.height, self.width))
+            # self.buffer_ind += 1
+            # todo: convert to using a start and stop point in the buffer to function circularly
+            self.buffer[self.buffer_stop] = self.frame.reshape((self.height, self.width))
+            self.buffer_stop += 1
             # self.frame_num += 1
             # self.frames_to_process += [self.frame]
             # if self.storing:
@@ -704,10 +708,11 @@ class Camera():
             if self.frame.ndim > 2:
                 self.frame = self.frame[..., 0]
             # assert self.buffer_ind < len(self.buffer), "Buffer is too small to store frames at this framerate"
-            if self.buffer_ind >= len(self.buffer):
-                self.buffer_ind = 0
-            self.buffer[self.buffer_ind] = self.frame
-            self.buffer_ind += 1
+            # if self.buffer_ind >= len(self.buffer):
+            #     self.buffer_ind = 0
+            # self.buffer[self.buffer_ind] = self.frame
+            self.buffer[self.buffer_stop % len(self.buffer)] = self.frame
+            self.buffer_stop += 1
             # self.frames_to_process += [self.frame]
             if self.frame_num > self.num_frames:
                 self.clear_headings()
@@ -716,9 +721,8 @@ class Camera():
                 self.video = io.FFmpegReader(self.dummy_fn)
                 self.frame_num = 0
             self.frame_num += 1
-            # time.sleep(4./self.framerate)
-            time.sleep(1./120.)
-            if self.frame_num % 4 == 0:
+            time.sleep(2.0/self.framerate)
+            if not self.storing and self.frame_num % 4 == 0:
                 self.update_heading()
                 self.import_config()
 
@@ -727,7 +731,9 @@ class Camera():
         self.frames = Queue()
         # make an array buffer to temporarily store frames
         self.buffer = np.zeros((buffer_size, self.height, self.width), dtype='uint8')
-        self.buffer_ind = 0
+        # self.buffer_ind = 0
+        self.buffer_start = 0
+        self.buffer_stop = 0
         # self.img_coords = np.repeat(self.img_coords[np.newaxis], buffer_size, axis=0)
         if not self.dummy:
             # assume the camera is armed
@@ -773,7 +779,8 @@ class Camera():
         self.storing = True
         # import the gui-set configuration before storing frames
         self.import_config()
-        if not self.dummy and self.capturing:
+        # if not self.dummy and self.capturing:
+        if self.capturing:            
             if save_fn is None:
                 save_fn = f"{timestamp()}.mp4"
                 save_fn = os.path.join(dirname, save_fn)
@@ -824,7 +831,8 @@ class Camera():
                 while self.frames_stored < total_frames:
                     self.store_frame()
                     print_progress(self.frames_stored, self.frame_num)
-        if "save_fn" in dir(self) and not self.dummy:
+#        if "save_fn" in dir(self) and not self.dummy:
+        if "save_fn" in dir(self):
             if 'video_writer' in dir(self):
                 self.video_writer.close()
                 print(f"{self.frames_stored} frames saved in {self.save_fn}")
@@ -1030,16 +1038,19 @@ class Camera():
                 inner_inds *= self.img_dists > (self.inner_r - ring_thickness/2.)
                 self.inner_inds = np.where(inner_inds)
                 self.inner_angs = self.img_angs[self.inner_inds]
+                self.inner_coords = self.img_coords[self.inner_inds]
                 # get the outer ring indices and angles
                 outer_inds = self.img_dists <= (self.outer_r + ring_thickness/2.)
                 outer_inds *= self.img_dists > (self.outer_r - ring_thickness/2.)
                 self.outer_inds = np.where(outer_inds)
                 self.outer_angs = self.img_angs[self.outer_inds]
+                self.outer_coords = self.img_coords[self.outer_inds]
                 # get the wing ring indices and angles
                 wing_inds = self.img_dists <= (self.wing_r + ring_thickness/2.)
                 wing_inds *= self.img_dists > (self.wing_r - ring_thickness/2.)
                 self.wing_inds = np.where(wing_inds)
                 self.wing_angs = self.img_angs[self.wing_inds]
+                self.wing_coords = self.img_coords[self.wing_inds]
                 # update the kalman filter if values changed
                 if 'kalman_filter' in dir(self):
                     std_changed = self.kalman_filter.jerk_std != self.kalman_jerk_std
@@ -1050,13 +1061,14 @@ class Camera():
             if "experiment_parameters" in info.keys():
                 self.exp_params = info['experiment_parameters']
 
-    def update_heading(self, absolute=False):
+    def update_heading(self):
         # todo: speed up this stage using CUDA to process at a much higher framerate
         # todo: make a numpy array to store frames between outputs. this'll allow for faster 
         # indexing of the 3d array, grabbing the inner and outer rings more quickly
         # the center of mass calculations may be the slowest part here. CUDA should 
         # help with that.
-        if self.playing and self.buffer_ind > 0:
+        # print(self.buffer_stop - self.buffer_start)
+        if self.playing and self.buffer_stop > self.buffer_start:
             # print(self.buffer_ind)
             # try:
             #     self.import_config()
@@ -1074,26 +1086,30 @@ class Camera():
             # inner_inds, inner_angs = self.inner_inds, self.inner_angs
             # frame = self.frame
             # frames = [self.frames_to_process[-1]]
-            frames = np.copy(self.buffer[0: self.buffer_ind])
-            try:
-                inner_ring = frames[:, self.inner_inds[0], self.inner_inds[1]]
-            except:
-                print(f"frames.shape={self.buffer.shape}, inner_inds[0].shape={self.inner_inds[0].shape}, buffer_ind={self.buffer_ind}")
+            # frames = np.copy(self.buffer[0: self.buffer_ind])
+            if self.buffer_stop >= len(self.buffer):
+                self.buffer_stop %= len(self.buffer)
+                # frames = np.append(self.buffer[self.buffer_start:], self.buffer[:self.buffer_stop], axis=0)
+                include = np.append(np.arange(self.buffer_start, len(self.buffer)), np.arange(0, self.buffer_stop))
+            else:
+                include = np.arange(self.buffer_start, self.buffer_stop)
+                # frames = self.buffer[self.buffer_start:self.buffer_stop]
+            frames = self.buffer[include]
+            # print(frames.shape)
+            self.buffer_start = self.buffer_stop
+            # update the start and stop time points
+            inner_ring = frames[:, self.inner_inds[0], self.inner_inds[1]]
                 # print(self.inner_inds)
             # todo: grab important frame values because it will likely be replaced by the next frame soon
             # use the outer and inner inds
             # outer_ring = frames[:, outer_inds[0], outer_inds[1]]
-            try:
-                outer_ring = frames[:, self.outer_inds[0], self.outer_inds[1]]
-            except:
-                print(f"frames.shape={self.buffer.shape}, inner_inds[0].shape={self.outer_inds[0].shape}, buffer_ind={self.buffer_ind}")
+            outer_ring = frames[:, self.outer_inds[0], self.outer_inds[1]]
                 # print(self.outer_inds)
             # get boolean mask for center of mass calculation
             if invert:
                 frame_mask = frames < thresh
             else:
                 frame_mask = frames > thresh
-            self.buffer_ind = 0
             # diffs = []
             # headings = []
             # headings_smooth = []
@@ -1143,11 +1159,13 @@ class Camera():
                 tail_dir = np.zeros(len(tail), dtype=float)
                 for num, (ind) in enumerate(tail):
                     if any(ind):
-                        mean = scipy.stats.circmean(self.outer_angs[ind], low=-np.pi, high=np.pi)
-                    else:
-                        mean = 0
-                    # tail_dir += [mean]
-                    tail_dir[num] = mean
+                        # tail_dir[num] = scipy.stats.circmean(self.outer_angs[ind], low=-np.pi, high=np.pi)
+                        # consider that it may be faster to take the 2D mean of the x, y coordinates
+                        # and then find the angle of that, instead of using the circular mean
+                        mean_coord = self.outer_coords[ind].mean(0)
+                        tail_dir[num] = np.arctan2(mean_coord[1], mean_coord[0])
+                # mean_coords = self.outer_coords[tail].mean((0, 1))
+                # tail_dir = np.arctan2(mean_coords[1], mean_coords[0])
                 # print(f"tail dir = {tail_dir}")
                 # todo: fix the rest of this algorithm 
                 # the head direction is the polar opposite of the tail
@@ -1186,21 +1204,23 @@ class Camera():
                 # include = np.zeros(len(inner_angs), dtype=bool)
                 # for lower, upper in zip(lower_bounds, upper_bounds):
                 #     include += (inner_angs > lower) * (inner_angs < upper)
-                headings = []
+                headings = np.zeros(len(tail), dtype=float)
+                headings.fill(np.nan)
                 if np.any(include):
                     if self.invert:
                         head = inner_ring < thresh
                     else:
                         head = inner_ring > thresh
                     head[include == 0] = False
-                    for ind in head:
+                    # use the coordinates to speed up the angle calculation
+                    for num, (ind) in enumerate(head):
                         if any(ind):
-                            angs = self.inner_angs[ind]
-                            heading = scipy.stats.circmean(angs, low=-np.pi, high=np.pi)
-                        else:
-                            heading = np.nan
-                        headings += [heading]
-            headings = np.array(headings)
+                            # angs = self.inner_angs[ind]
+                            # heading = scipy.stats.circmean(angs, low=-np.pi, high=np.pi)
+                            # headings[num] = scipy.stats.circmean(self.inner_angs[ind], low=-np.pi, high=np.pi)
+                            head_mean = self.inner_coords[ind].mean(0)
+                            headings[num] = np.arctan2(head_mean[1], head_mean[0])
+            # headings = np.array(headings)
             if self.com_correction:
                 diffs = []
                 for mask in frame_mask:
@@ -1212,7 +1232,10 @@ class Camera():
                 # convert from heading angle to head position for each heading
                 heading_pos = self.inner_r * np.array([np.sin(headings), np.cos(headings)]).T
                 # calculate direction vector between the center of the fly and the head
-                direction = heading_pos + diffs
+                try:
+                    direction = heading_pos + diffs
+                except:
+                    breakpoint()
                 headings = np.arctan2(direction[:, 0], direction[:, 1])
                 if not np.any(np.isnan(direction[-1])):
                     # store the shift in the center of mass for plotting
@@ -1227,7 +1250,7 @@ class Camera():
             #     headings += 2 * np.pi
             # store
             self.heading = copy.copy(headings[-1])
-            self.headings = np.append(self.headings, headings)
+            self.headings = np.append(self.headings, headings[-1:])
             # headings += [heading]
             if self.kalman:
                 headings_smooth = []
@@ -1278,9 +1301,9 @@ class Camera():
                                     self.saccade_frame = np.copy(self.frame_num)
                                     # print(f'saccade # {self.saccade_num}, frame {self.frame_num}')
                 else:
-                    for heading in headings:
+                    for heading in headings[-1:]:
                         headings_smooth += [heading]
-                self.headings_smooth = np.append(self.headings_smooth, headings_smooth)
+                self.headings_smooth = np.append(self.headings_smooth, headings_smooth[-1:])
                 # headings_smooth += [heading_smooth]
             if self.wing_analysis:
                 if self.frame_num < 5:
@@ -1370,7 +1393,10 @@ class Camera():
                 if self.storing:
                     self.frames.put(frame)
                 self.frame_num += 1
-            return heading
+            if self.kalman:
+                return self.headings_smooth[-1]
+            else:
+                return self.headings[-1]
         else:
             return self.heading
 
@@ -1552,7 +1578,8 @@ class TrackingTrial():
 
     def save(self):
         """Store the test data and information into the H5 dataset."""
-        if self.camera.capturing and not self.camera.dummy:
+        # if self.camera.capturing and not self.camera.dummy:
+        if self.camera.capturing:
             # store the two heading measurements
             if len(self.virtual_headings) > 0:
                 max_len = max([len(test) for test in self.virtual_headings])
