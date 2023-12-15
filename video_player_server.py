@@ -334,14 +334,6 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.head_pin.setBrush(
             pg.mkBrush(255 * red[0], 255 * red[1], 255 * red[2], 255))
         self.view_objective.addItem(self.head_pin)
-        # plot ticks at the extent of the 0, pi/2, pi, and 2*pi/2 axes
-        radius = 280
-        for ang, lbl in zip([0, np.pi/2, np.pi, 3*np.pi/2], ["0", "$\pi$/2", "$\pi$", "3$\pi$/2"]):
-            x, y = radius*np.cos(ang), radius*np.sin(ang)
-            label = pg.TextItem(lbl, color='white')
-            self.view_objective.addItem(label)
-            label.setPos(x, y)
-
         # the center-of-mass point
         self.com_pin = QtWidgets.QGraphicsEllipseItem(
             0, 0, linewidth/2, linewidth/2)
@@ -354,6 +346,25 @@ class VideoGUI(QtWidgets.QMainWindow):
         # self.com_pin.setBrush(
         #     pg.mkBrush(255, 255, 255, 255))
         self.view_objective.addItem(self.com_pin)
+        # plot the cardinal directions
+        self.plot_cardinal_directions()
+
+    def plot_cardinal_directions(self):
+        """This will (re)plot the cardinal directions based on the size of the incoming image."""
+        # remove any cardinal labels if present
+        if "cardinal_labels" in dir(self):
+            for label in self.cardinal_labels:
+                self.view_objective.removeItem(label)
+            del self.cardinal_labels
+        # plot ticks at the extent of the 0, pi/2, pi, and 2*pi/2 axes
+        radius = (max(self.img_height, self.img_width))/2 + self.border_pad + 50
+        self.cardinal_labels = []
+        for ang, lbl in zip([0, np.pi/2, np.pi, 3*np.pi/2], ["0", "90", "180", "270"]):
+            x, y = radius*np.cos(ang), radius*np.sin(ang)
+            label = pg.TextItem(lbl, color='white', anchor=(.5, .5), angle=(ang - np.pi/2) * 180 / np.pi)
+            self.view_objective.addItem(label)
+            label.setPos(x, y)
+            self.cardinal_labels += [label]
 
     def setup_sliders(self):
         ## Ring Detector Options ##
@@ -500,6 +511,7 @@ class VideoGUI(QtWidgets.QMainWindow):
         old_shape = (self.img_height, self.img_width)
         if old_shape != frame.shape:
             self.border_pad = int(round(abs(self.img_height - frame.shape[0])/2))
+            self.plot_cardinal_directions()
         pad = self.border_pad
         # threshold the image
         if self.thresholding_check.isChecked():
@@ -620,10 +632,7 @@ class VideoGUI(QtWidgets.QMainWindow):
                 if len(vals) > 0 and key in ['heading', 'heading_smooth']:
                     vals_arr = np.concatenate(vals)
                     if key in ['heading', 'heading_smooth']:
-                        diffs = vals_arr[1:] - vals_arr[:-1]
-                        diffs[np.isnan(diffs)] = 0
-                        new_vals = np.cumsum(diffs)
-                        vals_arr = np.unwrap(new_vals)
+                        vals_arr = np.unwrap(vals_arr)
                     vals_arr *= 180 / np.pi
                     if vals is not None:
                         # xs = np.linspace(0, len(vals_arr)/self.framerate, len(vals_arr))
