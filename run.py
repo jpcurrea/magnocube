@@ -11,11 +11,9 @@ hc.arduino.start('dummy')
 hc.scheduler.start(hc.window, randomize=False, default_rest_time=.1, freq=120)
 hc.scheduler.load_dir('experiments', suffix=('exp.py', 'rest.py'))
 hc.scheduler.randomize = True
-# hc.camera.display_start(buffer_fn="C:\\Users\\roach\\Desktop\\pablo\\magnocube\\_buffer.npy",
-#                         heading_fn="C:\\Users\\roach\\Desktop\\pablo\\magnocube\\_heading.npy")
+hc.camera.display_start()
 
 hc.camera.kalman = True
-hc.camera.display_start()
 hc.camera.capture_start()
 
 # hc.scheduler.load_dir('H:/Other computers/My Computer/pablo/magnocube/experiments', suffix=('exp.py', 'rest.py'))
