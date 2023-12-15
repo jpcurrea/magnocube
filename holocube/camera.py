@@ -51,7 +51,7 @@ if pyspin_loaded:
 else:
     cam_list = []
 
-hq_video = "H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4"
+hq_video = "test.mp4"
 # if True:
 if len(cam_list) == 0:
     cam_list = [hq_video]
@@ -445,7 +445,7 @@ class Camera():
     def __init__(self, camera=cam_list[0], invert_rotations=True, kalman=True,
                  window=None, plot_stimulus=True, config_fn='video_player.config',
                  video_player_fn='video_player_server.py', com_correction=True,
-                 saccade_trigger=True, acceleration_thresh=1000):
+                 saccade_trigger=True, acceleration_thresh=1000, wing_analysis=False):
         """Read from a BlackFly Camera via USB allowing GPIO triggers.
 
 
@@ -474,13 +474,15 @@ class Camera():
             Whether to use the saccade trigger to start and stop recording.
         acceleration_thresh : float, default=1
             The threshold acceleration for detecting saccades.
+        wing_analysis : bool, default=False
+            Whether to use the wing analysis algorithm to detect saccades.
         """
         # import the camera and setup the GenICam nodemap for PySpin
         self.frame_num = 0
         self.frames_stored = 0
         self.buffer_ind = 0
         self.frames_to_process = []
-        self.wing_analysis = False
+        self.wing_analysis = wing_analysis
         self.saccade_trigger = saccade_trigger
         self.acceleration_thresh = acceleration_thresh
         self.speed_thresh = 0
@@ -714,7 +716,8 @@ class Camera():
                 self.video = io.FFmpegReader(self.dummy_fn)
                 self.frame_num = 0
             self.frame_num += 1
-            time.sleep(1./self.framerate)
+            # time.sleep(4./self.framerate)
+            time.sleep(1./120.)
             if self.frame_num % 4 == 0:
                 self.update_heading()
                 self.import_config()
@@ -1280,7 +1283,10 @@ class Camera():
                 self.headings_smooth = np.append(self.headings_smooth, headings_smooth)
                 # headings_smooth += [heading_smooth]
             if self.wing_analysis:
-                headings_smooth = np.array(headings_smooth)
+                if self.frame_num < 5:
+                    heading_smooth = np.array
+                else:
+                    headings_smooth = np.array(headings_smooth)
                 # grab the ring of values from the frames pertaining to the wingbeats
                 wing_vals = frames[:, self.wing_inds[0], self.wing_inds[1]]
                 wing_angs = self.wing_angs
@@ -1294,7 +1300,7 @@ class Camera():
                 # plt.scatter(self.wing_inds[1], self.wing_inds[0], c=vals, marker='.', alpha=.25)
                 # plt.show()
                 # test: plot the wing angles and corresponding values
-                # for angs, vals, color in zip(wing_angs_centered, wing_vals, plt.cm.viridis(np.linspace(0, 1, 8))): order = np.argsort(angs); plt.plot(angs[order], vals[order], color=color)
+                for angs, vals, color in zip(wing_angs_centered, wing_vals, plt.cm.viridis(np.linspace(0, 1, 8))): order = np.argsort(angs); plt.plot(angs[order], vals[order], color=color)
                 # plt.show()
                 # I have 2 ideas for how to get the wing edge: 
                 # 1) use the raw values, find the bottom 3 local minima, and use the one with the widest spread
@@ -1306,12 +1312,12 @@ class Camera():
                 wing_vals_diff = wing_vals - background
                 wing_vals_diff[wing_vals_diff > 0] = 0
                 # 2) split the values into the left and right halves. the right wing corresponds to positive, centered angles
-                left_half = wing_angs_centered < 0
-                right_half = wing_angs_centered >= 0
+                left_half = wing_angs_centered >= np.pi
+                right_half = wing_angs_centered < np.pi
                 # 3) find the local minima for each half
                 left_peaks, right_peaks = [], []
                 for half, edge_variable, storage in zip([left_half, right_half], ['left_bases', 'right_bases'], [left_peaks, right_peaks]):
-                    for vals, angs, include, frame in zip(-wing_vals_diff, wing_angs_centered, half, frames):
+                    for vals, angs, include, frame, heading in zip(-wing_vals_diff, wing_angs_centered, half, frames, headings + np.pi):
                         order = np.argsort(angs[include])
                         # find the local minima
                         # peaks = signal.find_peaks_cwt(vals[half][order], widths=100)
@@ -1330,11 +1336,18 @@ class Camera():
                         # plt.plot(angs[include][order], vals[include][order])
                         # if len(edges) > 0:
                         #     plt.axvline(angs[include][order][edge])
-                        # plt.figure()
-                        # plt.imshow(frame, cmap='gray')
-                        # plt.scatter(self.wing_inds[1][include], self.wing_inds[0][include], c=vals[include], marker='.', alpha=.25)
-                        # if not np.isnan(edge):
-                        #     plt.scatter(self.wing_inds[1][include][order][edge], self.wing_inds[0][include][order][edge], c='r', marker='o')
+                        plt.figure()
+                        plt.imshow(frame, cmap='gray', origin='lower')
+                        plt.title(edge_variable)
+                        plt.scatter(self.wing_inds[1][include], self.wing_inds[0][include], c=vals[include], marker='.', alpha=.25)
+                        if not np.isnan(edge):
+                            plt.scatter(self.wing_inds[1][include][order][edge], self.wing_inds[0][include][order][edge], c='r', marker='o')
+                        # plot a vector in the direction of the heading
+                        r = 50
+                        cx, cy = self.width/2, self.height/2
+                        # rx, ry = r * np.cos(heading + np.pi/4), r * np.sin(heading + np.pi/4)
+                        rx, ry = r * np.cos(heading), r * np.sin(heading)
+                        plt.plot([cx, rx+cx], [cy, ry+cy])
                         # if more than 1 peak, then take the one with the greatest prominence
                         # store the peaks
                         if np.isnan(edge):
@@ -1342,7 +1355,12 @@ class Camera():
                         else:
                             edge_ang = angs[include][order][edge]
                         storage += [edge_ang]
-                # plt.show()
+                plt.figure()
+                plt.imshow(frames[-1], origin='lower')
+                plt.scatter(self.img_xs+cx, self.img_ys+cy, c=self.img_angs, alpha=.01)
+                plt.colorbar()
+                plt.show()
+                breakpoint()
             if 'display_data' in dir(self):
                 self.display_data['heading_smooth'] += [headings_smooth]
                 self.display_data['com_shift'] += [diffs]
@@ -1357,9 +1375,10 @@ class Camera():
             return self.heading
 
     def reset_data(self):
-        for key in self.display_data.keys():
-            if key != 'img':
-                self.display_data[key] = []
+        if 'display_data' in dir(self):
+            for key in self.display_data.keys():
+                if key != 'img':
+                    self.display_data[key] = []
 
     def update_north(self, north):
         self.north = north

@@ -2,8 +2,18 @@
 # run.py
 import pyglet
 import holocube.hc as hc
+import holocube.camera as cameras
 import os
 import time
+
+DUMMY = True
+DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_10_04_16_40_47.mp4'
+# DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4'
+WING_ANALYSIS = True
+
+if DUMMY:
+    hc.camera = cameras.Camera(window=hc.window, camera=DUMMY_FN,
+                               wing_analysis=WING_ANALYSIS)
 
 home_dir = os.getcwd()
 hc.window.start(config_file='viewport.config')
@@ -13,6 +23,7 @@ hc.scheduler.load_dir('experiments', suffix=('exp.py', 'rest.py'))
 hc.scheduler.randomize = True
 # hc.camera.display_start(buffer_fn="C:\\Users\\roach\\Desktop\\pablo\\magnocube\\_buffer.npy",
 #                         heading_fn="C:\\Users\\roach\\Desktop\\pablo\\magnocube\\_heading.npy")
+
 
 hc.camera.kalman = True
 hc.camera.display_start()

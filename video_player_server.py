@@ -220,22 +220,22 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.view_objective.addItem(self.image_objective)
         self.view_relative.addItem(self.image_relative)
         max_length = np.sqrt(self.img_width ** 2 + self.img_height ** 2)
-        if self.rotate270:
-            # self.center_y, self.center_x = self.img_width / 2, self.img_height / 2
-            self.center_y, self.center_x = 0, 0
-            # self.view_objective.setLimits(xMin=0, xMax=self.img_height,
-            #                               yMin=0, yMax=self.img_width)
-            self.view_objective.setRange(xRange=(-max_length/2, max_length/2),
-                                         yRange=(-max_length/2, max_length/2))
-            self.view_relative.disableAutoRange()
-            # self.view_relative.setLimits(xMin=-max_length/2, xMax=max_length/2,
-            #                              yMin=-max_length/2, yMax=max_length/2)
-            self.view_relative.setRange(xRange=(-max_length/2, max_length/2),
+        # if self.rotate270:
+        # self.center_y, self.center_x = self.img_width / 2, self.img_height / 2
+        self.center_y, self.center_x = 0, 0
+        # self.view_objective.setLimits(xMin=0, xMax=self.img_height,
+        #                               yMin=0, yMax=self.img_width)
+        self.view_objective.setRange(xRange=(-max_length/2, max_length/2),
                                         yRange=(-max_length/2, max_length/2))
-        else:
-            self.center_x, self.center_y = self.img_width/2, self.img_height/2
-            self.view_objective.setLimits(xMin=0, xMax=self.img_width,
-                                          yMin=0, yMax=self.img_height)
+        self.view_relative.disableAutoRange()
+        # self.view_relative.setLimits(xMin=-max_length/2, xMax=max_length/2,
+        #                              yMin=-max_length/2, yMax=max_length/2)
+        self.view_relative.setRange(xRange=(-max_length/2, max_length/2),
+                                    yRange=(-max_length/2, max_length/2))
+        # else:
+        #     self.center_x, self.center_y = self.img_width/2, self.img_height/2
+        #     self.view_objective.setLimits(xMin=0, xMax=self.img_width,
+        #                                   yMin=0, yMax=self.img_height)
         # lock the aspect ratio
         self.view_objective.setAspectLocked(True)
         self.view_relative.setAspectLocked(True)
@@ -334,6 +334,14 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.head_pin.setBrush(
             pg.mkBrush(255 * red[0], 255 * red[1], 255 * red[2], 255))
         self.view_objective.addItem(self.head_pin)
+        # plot ticks at the extent of the 0, pi/2, pi, and 2*pi/2 axes
+        radius = 280
+        for ang, lbl in zip([0, np.pi/2, np.pi, 3*np.pi/2], ["0", "$\pi$/2", "$\pi$", "3$\pi$/2"]):
+            x, y = radius*np.cos(ang), radius*np.sin(ang)
+            label = pg.TextItem(lbl, color='white')
+            self.view_objective.addItem(label)
+            label.setPos(x, y)
+
         # the center-of-mass point
         self.com_pin = QtWidgets.QGraphicsEllipseItem(
             0, 0, linewidth/2, linewidth/2)
