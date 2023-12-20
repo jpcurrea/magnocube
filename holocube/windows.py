@@ -636,7 +636,7 @@ class Holocube_window(pyglet.window.Window):
         '''Get the rotation matrix around the viewpoint'''
         return self.rot
 
-    def record_start(self, params=['yaw']):
+    def record_start(self, params=['yaw', 'realtime']):
         self.record_params = params
         self.record = {}
         self.record_ind = 0
@@ -645,13 +645,18 @@ class Holocube_window(pyglet.window.Window):
 
     def record_frame(self):
         for param in self.record_params:
-            self.record[param] += [getattr(self, param)]
+            if param == 'realtime':
+                val = time.time()
+            else:
+                val = self.__getattribute__(param)
+            self.record[param] += [val]
         self.record_ind += 1
 
     def record_stop(self, fn=None):
         """Store the recorded parameters as a structured numpy array."""
         dtypes = [(param, np.float64) for param in self.record_params]
-        arr = np.zeros((len(dtypes), self.record_ind), dtype=dtypes)
+        # arr = np.zeros((len(dtypes)+1, self.record_ind), dtype=dtypes)
+        arr = np.zeros((len(dtypes)+1, self.record_ind))
         for num, (param) in enumerate(self.record_params):
             arr[num] = np.array(self.record[param])
         if len(self.record_params) == 1:

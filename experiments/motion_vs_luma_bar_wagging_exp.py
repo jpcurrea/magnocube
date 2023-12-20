@@ -57,15 +57,9 @@ cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=-.2*pi,
 cyl_gray = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=-.2*pi,
                               top=.2*pi, xres=xres,
                               yres=xres, xdivs=64, ydivs=1, dist=2)
-motion_bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, 
+bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, 
                                 bottom=-.2*pi, top=.2*pi, xres=xres, yres=xres, xdivs=64, ydivs=1,
                                 dist=1)
-light_bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, 
-                               bottom=-.2*pi, top=.2*pi, xres=xres, yres=xres, xdivs=128, ydivs=1, 
-                               dist=1)
-dark_bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, 
-                              bottom=-.2*pi, top=.2*pi, xres=xres, yres=xres, xdivs=128, ydivs=1, 
-                              dist=1)
 
 
 # make a random period gratingx
@@ -113,13 +107,7 @@ lower_bound += dist
 upper_bound += dist
 bar_arr[:, lower_bound:upper_bound, :3][:, bar_vals == 1] = 255
 bar_arr[:, lower_bound:upper_bound, 3] = 255                                       # alpha
-motion_bar.set_image(bar_arr)
-# make simple light and dark bars
-bar_arr = np.zeros((height, width, 4), dtype='uint8')
-bar_arr[:, lower_bound:upper_bound] = 255
-light_bar.set_image(np.copy(bar_arr))
-bar_arr[..., :3] *= 0
-dark_bar.set_image(bar_arr)
+bar.set_image(bar_arr)
 
 # prep for using an msequence for the orientations
 ts = np.linspace(0, DURATION, num_frames)
@@ -170,19 +158,20 @@ exp_ends = [[hc.window.set_far,     1],
 hc.scheduler.add_exp(name=os.path.basename(FOLDER), starts=exp_starts, ends=exp_ends)
 
 bar_gain = 0
-tracker.start_time = time.time()
+tracker.start_time = 0
 # first, let's add the experiments with a background
 for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
-    for bar, bar_lbl in zip([motion_bar, light_bar, dark_bar], ['motion', 'light', 'dark']):
+    for bg_gain in [-1, 0]:
         for bar_orientations, eye_side in zip([orientations_right, orientations_left], ['right', 'left']):
             starts = [
                 [bar.switch, True],
                 [bg.switch, True],
                 [hc.camera.import_config],
+                [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, hc.camera.update_heading],
                 [tracker.virtual_objects['bar'].add_motion, bar_orientations],
                 [hc.camera.clear_headings],
                 [hc.window.record_start],
-                [print, f"bg_texture={bg_lbl}\tbar_texture={bar_lbl}\tbar_side={eye_side}"],
+                [print, f"bg_texture={bg_lbl}\tbar_side={eye_side}"],
                 [set_attr_func, tracker, 'start_time', time.time]
             ]
             middles = [
@@ -196,7 +185,7 @@ for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
                 [bar.switch, False],
                 [tracker.reset_virtual_object_motion],
                 [tracker.add_test_data, hc.window.record_stop,
-                 {'bg_texture': bg_lbl, 'bar_texture': bar_lbl, 'side': eye_side, 
+                 {'bg_texture': bg_lbl, 'side': eye_side, 'bg_gain': bg_gain,
                   'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time,
                   'bar_position': tracker.virtual_objects['bar'].get_angles}, True],
                 [hc.window.reset_rot],

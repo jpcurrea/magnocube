@@ -681,7 +681,7 @@ class Camera():
             # todo: convert to using a start and stop point in the buffer to function circularly
             self.buffer[self.buffer_stop] = self.frame.reshape((self.height, self.width))
             self.buffer_stop += 1
-            # self.frame_num += 1
+            self.frame_num += 1
             # self.frames_to_process += [self.frame]
             # if self.storing:
             #     self.frames.put(self.frame)
@@ -697,10 +697,11 @@ class Camera():
                 # update frame number
 
     def capture_dummy(self):
-        self.frame_num = 0
         #self.frames = []
+        self.frame_num = 0
+        self.vid_frame_num = 0
         self.num_frames = self.video.getShape()[0]
-        # self.framerate = 120
+        self.framerate = 120
         while self.capturing:
             # grab frame from the video
             # self.frame = self.video[self.frame_num % len(self.video)]
@@ -713,16 +714,16 @@ class Camera():
             # self.buffer[self.buffer_ind] = self.frame
             self.buffer[self.buffer_stop % len(self.buffer)] = self.frame
             self.buffer_stop += 1
+            self.vid_frame_num += 1
             # self.frames_to_process += [self.frame]
-            if self.frame_num > self.num_frames:
+            if self.vid_frame_num % self.num_frames == 0:
                 self.clear_headings()
                 self.reset_display()
                 self.reset_data()
                 self.video = io.FFmpegReader(self.dummy_fn)
-                self.frame_num = 0
-            self.frame_num += 1
-            time.sleep(2.0/self.framerate)
-            if not self.storing and self.frame_num % 4 == 0:
+                self.vid_frame_num = 0
+            time.sleep(1.0/self.framerate)
+            if not self.storing and self.vid_frame_num % 4 == 0:
                 self.update_heading()
                 self.import_config()
 
@@ -768,8 +769,7 @@ class Camera():
         # start the thread
         self.capture_thread.start()
 
-
-    def storing_start(self, duration=-1, dirname="./", save_fn=None, capture_online=False):
+    def storing_start(self, duration=-1, dirname="./", save_fn=None, capture_online=True):
         self.frames = Queue()
         self.frame_num = 0
         self.frames_stored = 0
@@ -780,7 +780,7 @@ class Camera():
         # import the gui-set configuration before storing frames
         self.import_config()
         # if not self.dummy and self.capturing:
-        if self.capturing:            
+        if self.capturing:
             if save_fn is None:
                 save_fn = f"{timestamp()}.mp4"
                 save_fn = os.path.join(dirname, save_fn)
@@ -813,7 +813,7 @@ class Camera():
 
     def store_frame(self):
         """Store the next frame."""
-        if self.frames_stored < self.frame_num:
+        if self.frames_stored < self.num_frames:
             frame = self.frames.get().reshape(self.height, self.width)
             frame = frame.astype('uint8')
             self.video_writer.writeFrame(frame)
@@ -821,16 +821,15 @@ class Camera():
 
     def storing_stop(self):
         self.storing = False
-        total_frames = self.frame_num
         if 'storing_thread' in dir(self):
             cancel = False
             resp = input("press <c> to cancel recording or <enter> to continue: ")
             if resp == 'c':
                 cancel = True
             if not cancel:
-                while self.frames_stored < total_frames:
+                while self.frames_stored < self.frame_num:
                     self.store_frame()
-                    print_progress(self.frames_stored, self.frame_num)
+                    print_progress(self.frames_stored, self.num_frames)
 #        if "save_fn" in dir(self) and not self.dummy:
         if "save_fn" in dir(self):
             if 'video_writer' in dir(self):
@@ -886,11 +885,12 @@ class Camera():
         self.heading_smooth = self.heading
         # make a dictionary to keep track of data to be PIPEd to the video player
         self.display_data = {'heading': [], 'heading_smooth': [], 'com_shift': [], 
-                             'left_wing_amp': [], 'right_wing_amp': [], 'head_angle': [],
+                             'wing_left': [], 'wing_right': [], 'head_angle': [],
                              'left_haltere': [], 'right_haltere': []}
         # start the player
         args = ["python", self.video_player_fn, "-h", str(self.height),
-                "-w", str(self.height), "-config_fn", str(self.config_fn)]
+                "-w", str(self.height), "-config_fn", str(self.config_fn), 
+                "-wingbeat", str(self.wing_analysis)]
         self.video_player = subprocess.Popen(args, stdin=subprocess.PIPE)
         self.playing = True
         # use a thread to update the frame and heading
@@ -906,7 +906,7 @@ class Camera():
         if self.video_player.poll() is None:
             self.video_player.kill()
 
-    def display(self, framerate=30.):
+    def display(self, framerate=60.):
         """Save frame and heading for video_player_server.py to display."""
         # note: there were problems due to stray threads continuously running
         interval = 1/framerate
@@ -1315,6 +1315,7 @@ class Camera():
                 wing_angs = self.wing_angs
                 wing_angs_centered = wing_angs[np.newaxis] - headings[:, np.newaxis] + np.pi/2
                 wing_angs_centered[wing_angs_centered < -np.pi] += 2 * np.pi
+                wing_angs_centered[wing_angs_centered >= np.pi] -= 2 * np.pi
                 # test: show the image with superimposed rings 
                 frame = frames[0]
                 angs = wing_angs_centered[0]
@@ -1323,7 +1324,7 @@ class Camera():
                 # plt.scatter(self.wing_inds[1], self.wing_inds[0], c=vals, marker='.', alpha=.25)
                 # plt.show()
                 # test: plot the wing angles and corresponding values
-                for angs, vals, color in zip(wing_angs_centered, wing_vals, plt.cm.viridis(np.linspace(0, 1, 8))): order = np.argsort(angs); plt.plot(angs[order], vals[order], color=color)
+                # for angs, vals, color in zip(wing_angs_centered, wing_vals, plt.cm.viridis(np.linspace(0, 1, 8))): order = np.argsort(angs); plt.plot(angs[order], vals[order], color=color)
                 # plt.show()
                 # I have 2 ideas for how to get the wing edge: 
                 # 1) use the raw values, find the bottom 3 local minima, and use the one with the widest spread
@@ -1335,70 +1336,91 @@ class Camera():
                 wing_vals_diff = wing_vals - background
                 wing_vals_diff[wing_vals_diff > 0] = 0
                 # 2) split the values into the left and right halves. the right wing corresponds to positive, centered angles
-                left_half = wing_angs_centered >= np.pi
-                right_half = wing_angs_centered < np.pi
+                # left_half = wing_angs_centered >= np.pi
+                # right_half = wing_angs_centered < np.pi
+                left_half = wing_angs_centered >= 0
+                right_half = wing_angs_centered < 0
                 # 3) find the local minima for each half
                 left_peaks, right_peaks = [], []
-                for half, edge_variable, storage in zip([left_half, right_half], ['left_bases', 'right_bases'], [left_peaks, right_peaks]):
+                for half, edge_variable, storage in zip([left_half, right_half], ['right_bases', 'left_bases'], [left_peaks, right_peaks]):
                     for vals, angs, include, frame, heading in zip(-wing_vals_diff, wing_angs_centered, half, frames, headings + np.pi):
                         order = np.argsort(angs[include])
                         # find the local minima
                         # peaks = signal.find_peaks_cwt(vals[half][order], widths=100)
                         # remove small differences before applying the peak finder
                         clean_vals = vals[include][order]
-                        clean_vals[clean_vals < 2] = 0
-                        peaks, fitness = scipy.signal.find_peaks(clean_vals, distance=100, prominence=2, width=40)
-                        edges = fitness[edge_variable]
-                        edge = np.nan
-                        if len(edges) > 1:
-                            # find the peak with the greatest prominence
-                            edge = edges[np.argmax(fitness['prominences'])]
-                        elif len(edges) == 1:
-                            edge = edges[0]
+                        # clean_vals[clean_vals < 2] = 0
+                        ## to use the wing envelope:
+                        # peaks, fitness = scipy.signal.find_peaks(clean_vals, distance=500, prominence=2)
+                        # # edges = fitness[edge_variable]
+                        # edges = peaks
+                        # edge = np.nan
+                        # if len(edges) > 1:
+                        #     # find the peak with the greatest prominence
+                        #     edge = edges[np.argmax(fitness['prominences'])]
+                        # elif len(edges) == 1:
+                        #     edge = edges[0]
                         # test: plot the wing angles and corresponding values
                         # plt.plot(angs[include][order], vals[include][order])
+                        # plt.plot(angs[include][order], clean_vals)
                         # if len(edges) > 0:
                         #     plt.axvline(angs[include][order][edge])
-                        plt.figure()
-                        plt.imshow(frame, cmap='gray', origin='lower')
-                        plt.title(edge_variable)
-                        plt.scatter(self.wing_inds[1][include], self.wing_inds[0][include], c=vals[include], marker='.', alpha=.25)
-                        if not np.isnan(edge):
-                            plt.scatter(self.wing_inds[1][include][order][edge], self.wing_inds[0][include][order][edge], c='r', marker='o')
+                        # plt.figure()
+                        # plt.imshow(frame, cmap='gray', origin='lower')
+                        # plt.title(edge_variable)
+                        # plt.scatter(self.wing_inds[1][include], self.wing_inds[0][include], c=vals[include], marker='.', alpha=.25)
+                        # if not np.isnan(edge):
+                        #     plt.scatter(self.wing_inds[1][include][order][edge], self.wing_inds[0][include][order][edge], c='r', marker='o')
                         # plot a vector in the direction of the heading
-                        r = 50
-                        cx, cy = self.width/2, self.height/2
+                        # r = 100
+                        # cx, cy = self.width/2, self.height/2
                         # rx, ry = r * np.cos(heading + np.pi/4), r * np.sin(heading + np.pi/4)
-                        rx, ry = r * np.cos(heading), r * np.sin(heading)
-                        plt.plot([cx, rx+cx], [cy, ry+cy])
+                        # rx, ry = r * np.cos(heading + 3*np.pi/2), r * np.sin(heading + 3*np.pi/2)
+                        # plt.plot([cx, rx+cx], [cy, ry+cy])
                         # if more than 1 peak, then take the one with the greatest prominence
-                        # store the peaks
+                        inds = np.arange(len(clean_vals))
+                        edge = int(np.round(np.sum(inds * clean_vals)/clean_vals.sum()))
+                        # # store the peaks
                         if np.isnan(edge):
                             edge_ang = np.nan
                         else:
                             edge_ang = angs[include][order][edge]
+                        # edge = int(round(np.mean(np.arange(len(clean_vals)) * clean_vals)))
+                        # edge_ang = (angs[include][order] * clean_vals).sum()/(clean_vals.sum())
                         storage += [edge_ang]
-                plt.figure()
-                plt.imshow(frames[-1], origin='lower')
-                plt.scatter(self.img_xs+cx, self.img_ys+cy, c=self.img_angs, alpha=.01)
-                plt.colorbar()
-                plt.show()
-                breakpoint()
+                #         plt.savefig("test.png")
+                # breakpoint()
             if 'display_data' in dir(self):
+                if self.wing_analysis:
+                    left_peaks = -np.array(left_peaks)
+                    right_peaks = -np.array(right_peaks)
+                    self.display_data['wing_left'] += [right_peaks]
+                    self.display_data['wing_right'] += [left_peaks]
+                    # self.display_data['wing_left'] += [[np.pi/2]]
+                    # self.display_data['wing_right'] += [[np.pi/2]]
+                    # adding pi/2 will make 0 the direction of the head
+                    # -pi/2 is the right side and pi/2 is the left side
                 self.display_data['heading_smooth'] += [headings_smooth]
                 self.display_data['com_shift'] += [diffs]
                 self.display_data['heading'] += [headings]
             # now add the frames to the queue for recording data
-            for frame in frames:
+            for frame in np.copy(frames):
                 if self.storing:
                     self.frames.put(frame)
-                self.frame_num += 1
+                    self.frame_num += 1
             if self.kalman:
                 return self.headings_smooth[-1]
             else:
                 return self.headings[-1]
         else:
-            return self.heading
+            if self.kalman:
+                heading = self.kalman_filter.predict()
+            elif len(self.headings) > 0:
+                heading = self.headings[-1]
+            else:
+                heading = np.nan
+            self.headings = np.append(self.headings, heading)
+            return heading
 
     def reset_data(self):
         if 'display_data' in dir(self):
@@ -1473,6 +1495,7 @@ class TrackingTrial():
         self.heading = 0
         self.virtual_headings_test = []  # the list of headings per test from the camera
         self.virtual_headings = []  # the list of headings per test from the camera
+        self.realtime = []   # list of timestamps for each stored frame
         self.test_info = {}  # the experiment parameters per test
 
     def h5_setup(self, save_fn=None):
@@ -1544,7 +1567,9 @@ class TrackingTrial():
         if self.camera.capturing:
             if callable(arr):
                 arr = arr()
-            self.yaws += [arr]
+            self.yaws += [arr[0]]
+            if len(arr) > 1:
+                self.realtime += [arr[1]]
             self.headings += [self.camera.get_headings()]
             self.headings_smooth += [self.camera.get_headings_smooth()]
             # try:
@@ -1589,8 +1614,8 @@ class TrackingTrial():
                     row[:len(test)] = test
                 self.virtual_headings = new_virtual_headings
             for vals, label in zip(
-                    [self.yaws, self.headings, self.headings_smooth, self.virtual_headings],
-                    ['yaw', 'camera_heading', 'camera_heading_smooth' 'virtual_angle']):
+                    [self.yaws, self.realtime, self.headings, self.headings_smooth, self.virtual_headings],
+                    ['yaw', 'realtime', 'camera_heading', 'camera_heading_smooth' 'virtual_angle']):
                 # remove any empty dimensions
                 if len(vals) > 1:
                     # convert the camera and display headings into 2D arrays
@@ -1654,7 +1679,11 @@ class TrackingTrial():
                     else:
                         arr[num] = test
                 # store the values in the h5 dataset
-                self.h5_file.create_dataset(param, data=np.squeeze(arr))
+                try:
+                    self.h5_file.create_dataset(param, data=np.squeeze(arr))
+                except:
+                    print(param)
+                    self.h5_file.create_dataset(param, data=np.squeeze(arr))
             # new_fn = self.fn.replace(".h5", "_fail.h5")
             # new_dataset = h5py.File(new_fn, 'w')
             # # store all of the datasets 

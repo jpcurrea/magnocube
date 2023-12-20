@@ -164,48 +164,43 @@ exp_ends = [[hc.window.set_far,     1],
 hc.scheduler.add_exp(name=os.path.basename(FOLDER).replace("_", " "), starts=exp_starts, ends=exp_ends)
 
 bar_gain = 0
-tracker.start_time = time.time()
-for bg_gain in bg_gains:
-    for bg_velocity in bg_velocities:
-        for start_angle in starting_oris:
-            for bar_velocity in bar_velocities:
-                # calculate the necessary orientations based on the bar and bg velocities
-                bg_oris = np.arange(num_frames) * bg_velocity / hc.scheduler.freq
-                bar_oris = np.arange(num_frames) * bar_velocity / hc.scheduler.freq
-                bar_oris += start_angle
-                starts = [[motion_bar.switch, True],
-                        [cyl.switch, True],
-                        [hc.camera.import_config],
-                        [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, hc.camera.update_heading],
-                        # test: do we need to set the motion parameters again for the bar??
-                        # [tracker.virtual_objects['bar'].set_motion_parameters, 0, hc.camera.update_heading],
-                        [tracker.virtual_objects['bar'].add_motion, bar_oris],
-                        [tracker.virtual_objects['bg'].add_motion, bg_oris],
-                        [hc.camera.clear_headings],
-                        [hc.window.record_start],
-                        [set_attr_func, tracker, 'start_time', time.time]
-                        ]
-                middles = [
-                        [hc.camera.get_background, hc.window.get_frame],
-                        [tracker.update_objects, hc.camera.update_heading],
-                        [motion_bar.set_ry, tracker.virtual_objects['bar'].get_angle],
-                        [cyl.set_ry, tracker.virtual_objects['bg'].get_angle],
-                        [hc.window.record_frame]
-                        ]
-                ends = [[cyl.switch, False],
-                        [motion_bar.switch, False],
-                        [tracker.virtual_objects['bar'].clear_motion],
-                        [tracker.virtual_objects['bg'].clear_motion],
-                        [tracker.add_test_data, hc.window.record_stop,
-                        {'bar_gain': bar_gain, 'bg_gain': bg_gain,
-                        'start_angle': start_angle, 
-                        'bar_orientation': tracker.virtual_objects['bar'].get_angles,
-                        'bg_orientation': tracker.virtual_objects['bg'].get_angles,
-                        'start_test': getattr(tracker, 'start_time'),
-                        'stop_test': time.time}, True],
-                        [hc.window.reset_rot],
-                        ]
-                hc.scheduler.add_test(num_frames, starts, middles, ends)
+tracker.start_time = 0
+for bg_gain in [-1, 0]:
+    for bar_gain in [-1, 0]:
+        for bar_velocity in bar_velocities:
+            # calculate the necessary orientations based on the bar and bg velocities
+            bar_oris = np.arange(num_frames) * bar_velocity / hc.scheduler.freq
+            bar_oris += np.pi
+            starts = [[motion_bar.switch, True],
+                    [cyl.switch, True],
+                    [hc.camera.import_config],
+                    [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, hc.camera.update_heading],
+                    [tracker.virtual_objects['bar'].set_motion_parameters, bar_gain, hc.camera.update_heading],
+                    [tracker.virtual_objects['bar'].add_motion, bar_oris],
+                    [hc.camera.clear_headings],
+                    [hc.window.record_start],
+                    [set_attr_func, tracker, 'start_time', time.time]
+                    ]
+            middles = [
+                    [hc.camera.get_background, hc.window.get_frame],
+                    [tracker.update_objects, hc.camera.update_heading],
+                    [motion_bar.set_ry, tracker.virtual_objects['bar'].get_angle],
+                    [cyl.set_ry, tracker.virtual_objects['bg'].get_angle],
+                    [hc.window.record_frame]
+                    ]
+            ends = [[cyl.switch, False],
+                    [motion_bar.switch, False],
+                    [tracker.virtual_objects['bar'].clear_motion],
+                    [tracker.virtual_objects['bg'].clear_motion],
+                    [tracker.add_test_data, hc.window.record_stop,
+                    {'bar_gain': bar_gain, 'bg_gain': bg_gain, 'bar_velocity': bar_velocity,
+                    'bar_orientation': tracker.virtual_objects['bar'].get_angles,
+                    'bg_orientation': tracker.virtual_objects['bg'].get_angles,
+                    'start_test': getattr(tracker, 'start_time'),
+                    'stop_test': time.time}, True],
+                    [hc.window.reset_rot],
+                    ]
+            hc.scheduler.add_test(num_frames, starts, middles, ends)
 
 # for bg_gain in [-1, 0]:
 #     starts = [[bar.switch, False],

@@ -7,13 +7,12 @@ import os
 import time
 
 DUMMY = True
-DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_10_04_16_40_47.mp4'
-# DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4'
+# DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_10_04_16_40_47.mp4'
+DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4'
 WING_ANALYSIS = False
 
 if DUMMY:
-    hc.camera = cameras.Camera(window=hc.window, camera=DUMMY_FN,
-                               wing_analysis=WING_ANALYSIS)
+    hc.camera = cameras.Camera(window=hc.window, camera=DUMMY_FN, wing_analysis=WING_ANALYSIS)
 
 home_dir = os.getcwd()
 hc.window.start(config_file='viewport.config')

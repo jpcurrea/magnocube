@@ -64,7 +64,7 @@ class Slider(QtWidgets.QWidget):
 
 
 class Marker():
-    def __init__(self, name, coord, color, menu_layout, window, size=10):
+    def __init__(self, name, coord, color, menu_layout, window, gui, size=10):
         """A 2D marker and the corresponding radio button.
         
         Parameters
@@ -76,15 +76,27 @@ class Marker():
         color : tuple
             The RGBA color of the marker.
         menu_layout : QtWidgets layout
-
+            The layout to add the marker to.
+        window : pyqtgraph window
+            The window to add the marker to.
+        gui : VideoGUI
+            The parent GUI.
         """
         # store attributes
+        self.size = size
         name = name.replace("_", " ")
         self.name, self.coord, self.color = name, coord, color
         self.menu, self.window = menu_layout, window
+        self.gui = gui
+        self.line_pen = None
+        # make a horizontal sublayout
+        self.layout = QtWidgets.QHBoxLayout()
         # plot the marker
+        # self.marker = QtWidgets.QGraphicsEllipseItem(
+        #     coord[0] - size/2, coord[1]-size/2, size, size)
         self.marker = QtWidgets.QGraphicsEllipseItem(
-            coord[0] - size/2, coord[1]-size/2, size, size)
+            0, 0, size, size)
+        # self.marker.setPos(coord[0], coord[1])
         self.standby_pen = pg.mkPen(
             255 * color[0], 255 * color[1], 255 * color[2], 255,
             width=3)
@@ -105,14 +117,43 @@ class Marker():
         #                           f"background-color : rgb({255*int(color[0]):.1f}, {255*int(color[1]):.1f}, {255*int(color[2]):.1f})"
         #                           "}")
         self.button.setStyleSheet(f"color: white")
-        self.menu.addWidget(self.button, 1)
+        # add the button to the layout
+        self.layout.addWidget(self.button, 1)
+        # add a QDoubleSpinBox for the x and y coordinates
+        # x coord
+        self.x_box = QtWidgets.QDoubleSpinBox()
+        self.x_box.setMinimum(-2000)
+        self.x_box.setMaximum(2000)
+        self.x_box.setValue(self.coord[0])
+        self.x_box.setStyleSheet("color: white; background-color: black")
+        self.x_box.setDecimals(1)
+        self.x_box.valueChanged.connect(self.update_coord)
+        # y coord
+        self.y_box = QtWidgets.QDoubleSpinBox()
+        self.y_box.setMinimum(-2000)
+        self.y_box.setMaximum(2000)
+        self.y_box.setValue(self.coord[1])
+        self.y_box.setStyleSheet("color: white; background-color: black")
+        self.y_box.setDecimals(1)
+        self.y_box.valueChanged.connect(self.update_coord)
+        # add the spin boxes to the layout
+        self.layout.addWidget(self.x_box, 1)
+        self.layout.addWidget(self.y_box, 1)
+        # add the layout to the menu
+        self.menu.addLayout(self.layout, 1)
+        # update the coords
+        self.update_coord()
 
-    def update_coord(self, coord):
+    def update_coord(self):
         """Update the coordinate of the marker."""
+        coord = [self.x_box.value(), self.y_box.value()]
         # store the new coordinate
         self.coord[:] = coord
         # update the marker coordinate
-        self.marker.setPos(coord[0], coord[1])
+        self.marker.setPos(int(coord[0] - self.size/2), int(coord[1] - self.size/2))
+        # update the GUI
+        self.gui.update_plots()
+        self.gui.save_vars()
 
     def toggle(self):
         # if checked, use the large marker
@@ -124,15 +165,62 @@ class Marker():
             self.selected = False
             self.marker.setPen(self.standby_pen)
 
+# a custom ImageItem class to allow for marker selection
+class MarkedImageItem(pg.ImageItem):
+    def __init__(self, gui, **image_item_kwargs):
+        self.gui = gui
+        super().__init__(**image_item_kwargs)
+
+    def mouseClickEvent(self, event):
+        coord = np.array(event.pos())
+        # center the coords using the center of mass
+        dy, dx = -self.gui.img_height/2 - self.gui.border_pad, -self.gui.img_width/2 - self.gui.border_pad
+        coord += np.array([dx, dy])
+        print(coord)
+        # go through all of the markers and update the coordinates of the active one
+        for lbl, marker in self.gui.markers.items():
+            if marker.selected:
+                self.gui.marker_coords[lbl] = coord
+                self.gui.save_vars()
+                marker.update_coord(coord)
+        
+
 
 class VideoGUI(QtWidgets.QMainWindow):
     def __init__(self, img_height=600, img_width=500, display_rate=30,
                  inner_radius=100., outer_radius=150., thresh=100,
-                 thresholding=True, config_fn="video_player.config", border_pad=0):
+                 thresholding=True, config_fn="video_player.config", border_pad=0,
+                 wingbeat_analysis=False):
+        """A GUI for displaying the live video feed and heading data.
+
+
+        Parameters
+        ----------
+        img_height, img_width : int
+            The height or width of the incoming video feed.
+        display_rate : int
+            The rate at which to display the video feed.
+        inner_radius, outer_radius : float
+            The inner and outer radius intersecting with the head and abdomen 
+            of the fly, respectively.
+        thresh : int
+            The threshold for the ring detectors.
+        thresholding : bool
+            Whether to threshold the incoming video feed.
+        config_fn : str
+            The path to the config file.
+        border_pad : int
+            The number of pixels to pad the image with.
+        wingbeat_analysis : bool
+            Whether to perform wingbeat analysis.
+        """
+        self.wingbeat_analysis = wingbeat_analysis
         self.display_rate = display_rate
         self.config_fn = config_fn
         self.experiment_parameters = {}
         self.data = {}
+        self.markers = {}
+        self.wing_edges = {}
         self.start_time = time.time()
         self.current_time = time.time()
         params = ['heading', 'heading_smooth', 'com_shift']
@@ -156,6 +244,8 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.setup()
         # show all the widgets
         self.show()
+        # update the plots
+        self.update_plots()
 
     def import_config(self):
         """Import important parameters from the config file."""
@@ -201,18 +291,39 @@ class VideoGUI(QtWidgets.QMainWindow):
         # add a view box
         self.view_objective = self.window.addViewBox(row=0, col=0)
         self.view_relative = self.window.addViewBox(row=0, col=1)
+        # self.view_relative = MarkedViewBox(gui=self, row=0, col=1)
+        # self.window.addItem(self.view_relative, row=0, col=1, rowspan=1, colspan=1)
         # make the raw heading data a low opacity gray line
         self.heading_plot = self.window.addPlot(row=1, col=0, colspan=2, title='heading')
-        self.heading_plot_raw = self.heading_plot.plot(x=[0], y=[0], pen=pg.mkPen(.2))
+        self.heading_plot_raw = self.heading_plot.plot(x=[], y=[], pen=pg.mkPen(.2))
         # and add a full opacity line for the Kalman Filter output
-        self.heading_plot_smooth = self.heading_plot.plot(x=[0], y=[0])
+        self.heading_plot_smooth = self.heading_plot.plot(x=[], y=[])
         # self.heading_plot.setOpacity(.25)
         self.heading_plot.setMaximumHeight(200)
+        # # WBA plots
+        # self.wba_plot = self.window.addPlot(row=2, col=0, colspan=2, title='WBA')
+        # self.wba_plot_left = self.wba_plot.plot(x=[], y=[], pen=pg.mkPen(255 * blue[0], 255 * blue[1], 255 * blue[2], 150, width=1))
+        # # and add a full opacity line for the Kalman Filter output
+        # self.wba_plot_right = self.wba_plot.plot(x=[], y=[], pen=pg.mkPen(255 * red[0], 255 * red[1], 255 * red[2], 150, width=1))
+        # self.wba_plot.setMaximumHeight(200)
+        # WBA plots - L-R and L+R
+        if self.wingbeat_analysis:
+            self.wba_plot_lmr = self.window.addPlot(row=2, col=0, colspan=2, title='L-R WBA')
+            self.wba_lmr = self.wba_plot_lmr.plot(x=[], y=[], pen=pg.mkPen(255 * blue[0], 255 * blue[1], 255 * blue[2], 150, width=1))
+            self.wba_plot_lmr.setMaximumHeight(100)
+            hori_line_pen = pg.mkPen(0.5, width=1, style=QtCore.Qt.DashLine)
+            hori_line = pg.InfiniteLine((0, 0), angle=0, pen=hori_line_pen)
+            self.wba_plot_lmr.addItem(hori_line)
+            # and add a full opacity line for the Kalman Filter output
+            self.wba_plot_lpr = self.window.addPlot(row=3, col=0, colspan=2, title='L+R WBA')
+            self.wba_lpr = self.wba_plot_lpr.plot(x=[], y=[], pen=pg.mkPen(255 * red[0], 255 * red[1], 255 * red[2], 150, width=1))
+            self.wba_plot_lpr.setMaximumHeight(100)
         # reset the headings data by default
         # add the image item to the viewbox
         if self.rotate270:
             self.image_objective = pg.ImageItem(border='k', axisOrder='row-major')
             self.image_relative = pg.ImageItem(border='k', axisOrder='row-major')
+            # self.image_relative = MarkedImageItem(gui=self, border='k', axisOrder='row-major')
         else:
             self.image_objective = pg.ImageItem(border='k')
             self.image_relative = pg.ImageItem(border='k')
@@ -258,8 +369,9 @@ class VideoGUI(QtWidgets.QMainWindow):
         ## Slider Options ##
         self.setup_sliders()
         ## todo: Exposure Options ##
-        ## Marker Options ##
-        # self.setup_fly_markers()
+        if self.wingbeat_analysis:
+            # setup the marker information 
+            self.setup_fly_markers()
         ## Kalman Options ##
         self.setup_kalman_menu()
         ## Log Options ##
@@ -289,15 +401,16 @@ class VideoGUI(QtWidgets.QMainWindow):
                      width=linewidth))
         self.outer_ring.setBrush(pg.mkBrush(None))
         self.view_objective.addItem(self.outer_ring)
-        # wing ring
-        self.wing_ring = QtWidgets.QGraphicsEllipseItem(
-            self.wing_radius, self.wing_radius,
-            self.wing_radius * 2, self.wing_radius * 2)
-        self.wing_ring.setPen(
-            pg.mkPen(255 * blue[0], 255 * blue[1], 255 * blue[2], 150,
-                     width=linewidth))
-        self.wing_ring.setBrush(pg.mkBrush(None))
-        self.view_objective.addItem(self.wing_ring)
+        if self.wingbeat_analysis:
+            # wing ring
+            self.wing_ring = QtWidgets.QGraphicsEllipseItem(
+                self.wing_radius, self.wing_radius,
+                self.wing_radius * 2, self.wing_radius * 2)
+            self.wing_ring.setPen(
+                pg.mkPen(255 * blue[0], 255 * blue[1], 255 * blue[2], 150,
+                        width=linewidth))
+            self.wing_ring.setBrush(pg.mkBrush(None))
+            self.view_objective.addItem(self.wing_ring)
         # plot the heading point and line
         posy = self.inner_radius - linewidth/2
         # plot the heading vector
@@ -387,29 +500,31 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.outer_slider = Slider(0, radius_max, var_lbl='tail r:')
         self.sliders_layout.addWidget(self.outer_slider)
         self.menu_layout.addLayout(self.sliders_layout, 1)
-        # 4. control wing ring
-        self.wing_slider = Slider(0, radius_max, var_lbl='wing r:')
-        self.sliders_layout.addWidget(self.wing_slider)
-        self.menu_layout.addLayout(self.sliders_layout, 1)
+        if self.wingbeat_analysis:
+            # 4. control wing ring
+            self.wing_slider = Slider(0, radius_max, var_lbl='wing r:')
+            self.sliders_layout.addWidget(self.wing_slider)
+            self.menu_layout.addLayout(self.sliders_layout, 1)
         # connect the radius sliders to the ring radius
         def update_val(value=None, abs_value=None, slider=self.inner_slider,
                        ring=self.inner_ring):
             slider.setLabelValue(value=value, abs_value=abs_value)
             ring.setRect(self.center_x - slider.x, self.center_y - slider.x,
                          2 * slider.x, 2 * slider.x)
-            self.update_plots()
-            self.save_vars()
+            # self.update_plots()
+            # self.save_vars()
         self.inner_slider.slider.valueChanged.connect(
             partial(update_val, slider=self.inner_slider, ring=self.inner_ring))
         self.outer_slider.slider.valueChanged.connect(
             partial(update_val, slider=self.outer_slider, ring=self.outer_ring))
-        self.wing_slider.slider.valueChanged.connect(
-            partial(update_val, slider=self.wing_slider, ring=self.wing_ring))
+        if self.wingbeat_analysis:
+            self.wing_slider.slider.valueChanged.connect(
+                partial(update_val, slider=self.wing_slider, ring=self.wing_ring))
+            self.wing_slider.setLabelValue(abs_value=self.wing_radius)
         # set the slider to default values
         self.threshold_slider.setLabelValue(abs_value=self.thresh)
         self.inner_slider.setLabelValue(abs_value=self.inner_radius)
         self.outer_slider.setLabelValue(abs_value=self.outer_radius)
-        self.wing_slider.setLabelValue(abs_value=self.wing_radius)
 
     def setup_kalman_menu(self):
         # make a layout for the Kalman Filter
@@ -487,15 +602,25 @@ class VideoGUI(QtWidgets.QMainWindow):
             self.buttons_layout.addWidget(combobox, 1)
 
     def setup_fly_markers(self, size=10, cmap='viridis'):
-        """Place markers provided """
+        """Place markers provided.
+
+        This will also plot the wing edges relative to the wing hinges.
+        To do this, PIPE both wing angles as a fload with the self.data[wing_{side}]
+
+
+        Parameters
+        ----------
+        size : int
+            The size of the marker.
+        cmap : str
+            The colormap to use for the markers.        
+        """
         # todo: add a custom mouseClickRelease method and list of markers
         # to the view_relative window
-        breakpoint()
         # make a layout for the buttons
         self.marker_menu = QtWidgets.QVBoxLayout()
         # add layouts to the main layout hierarchicaly
         self.menu_layout.addLayout(self.marker_menu, 1)
-        self.markers = {}
         # get nice colors for the markers using the default colormap
         cmap = matplotlib.colormaps[cmap]
         num_markers = len(self.marker_coords.keys())
@@ -504,7 +629,31 @@ class VideoGUI(QtWidgets.QMainWindow):
         for num, ((key, coords), color) in enumerate(zip(self.marker_coords.items(), colors)):
             # add the marker to both the subjective view and marker menu
             self.markers[key] = Marker(key, coords, color, self.marker_menu, 
-                                       self.view_relative)
+                                       self.view_relative, self)
+        # plot the wing edges as lines starting at the left and right wing marker coordinates
+        for lbl, marker in self.markers.items():
+            if 'hinge' in lbl:
+                edge_side = lbl.split("_")[-1]
+                # using the angle, find the second point
+                var = "_".join([edge_side, "wing", "amp"])
+                if var in dir(self):
+                    edge_angle = self.__getattribute__(var)
+                else:
+                    edge_angle = 3*np.pi/2
+                center = marker.coord
+                extent = self.wing_radius * np.array([np.cos(edge_angle), np.sin(edge_angle)])
+                # make the edge line
+                color = marker.color
+                line = pg.PlotCurveItem()
+                pen = pg.mkPen(255 * color[0], 255 * color[1], 255 * color[2], 150,
+                               width=size/2)
+                marker.line_pen = pen
+                line.setData(
+                    [center[0], extent[0]],[center[1], extent[1]], 
+                    pen=self.standby_pen)
+                # store for easy access
+                self.wing_edges[edge_side] = line
+                self.view_relative.addItem(line)
 
     def update_frame(self, frame):
         # check if the frame size chaged. if so, we've added a border
@@ -540,7 +689,7 @@ class VideoGUI(QtWidgets.QMainWindow):
         any_changed = False
         for key, vals in data.items():
             # passed data include 1) a frame ('img'), 2) raw and smoothed heading data ('heading', 'heading_smooth')
-            # 3) the center of mass shift ('com_shift'), and 4) the wing angle data
+            # 3) the center of mass shift ('com_shift'), and 4) the wing angle data ('wing_left' and 'wing_right')
             # if not isinstance(vals, list):
             #     print(key, vals)
             if len(vals) > 0:
@@ -559,38 +708,12 @@ class VideoGUI(QtWidgets.QMainWindow):
                         else:
                             self.data[key] = [vals]
                         any_changed = True
+        #print(self.wing_left, self.heading)
         if any_changed:
             self.current_time = time.time()
 
     def update_plots(self):
         """Update the plotted data."""
-        # if heading_smooth is None:
-        #     heading_smooth = heading
-        # # use smooth headings unless they are nans
-        # use_smooth_headings = False
-        # if len(headings_smooth) > 0:
-        #     if headings_smooth[-1] is not np.nan:
-        #         use_smooth_headings = True
-        # # add to the stored data
-        # if use_smooth_headings:
-        #     heading = heading_smooth
-        # elif len(headings) > 0:
-        #     heading = headings[-1]
-        # else:
-        #     heading = 0
-        # if np.isnan(heading):
-        #     heading = 0
-        # # combine with the stored data
-        # self.headings += [heading]
-
-        # # flip to match the camera and projector coordinates
-        # # heading *= -1
-        # heading = np.pi - heading
-        # headings = np.pi - headings
-        # headings_smooth = np.pi - headings_smooth
-        # self.heading = heading
-        # if self.rotate270:
-        #     heading += np.pi/2
         if np.isnan(self.heading):
             # print(self.data['heading'])
             self.tracking_active = False
@@ -626,37 +749,58 @@ class VideoGUI(QtWidgets.QMainWindow):
                 dy -= self.com_shift[1]
             transform.translate(dx, dy)
             self.image_relative.setTransform(transform)
-            # plot the data
-            # todo: store all of the data to plot (self.data)
-            for num, (key, vals) in enumerate(self.data.items()):
-                if len(vals) > 0 and key in ['heading', 'heading_smooth']:
-                    vals_arr = np.concatenate(vals)
-                    if key in ['heading', 'heading_smooth']:
-                        vals_arr = np.unwrap(vals_arr)
-                    vals_arr *= 180 / np.pi
-                    if vals is not None:
-                        # xs = np.linspace(0, len(vals_arr)/self.framerate, len(vals_arr))
-                        # self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
-                        xs = np.linspace(0, self.current_time - self.start_time, len(vals_arr))
-                        self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
-
-    def mouseReleaseEvent(self, event):
-        """Setup actions for clicking in the window."""
-        # if the click happens within the Relative View window, update the 
-        # active marker coordinates to the clicked location 
-        # check if the click is within the view_relative window
-        print('click!')
-        pos = event.pos()
-        if pos in self.view_relative.rect():
-            active_marker = None
-            for name, marker in self.markers.items():
-                if marker.selected:
-                    active_marker = marker
-            # if one is selected, update its coordinates using the 
-            # local coordinate of the plot
-            if active_marker is not None:
-                active_marker.update_coords(event.localPos())
-
+            for vars, plot in zip([['heading', 'heading_smooth']], [self.heading_plot]):
+                for num, var in enumerate(vars):
+                    if var in self.data.keys():
+                        vals = self.data[var]
+                        if len(vals) > 0:
+                            vals_arr = np.concatenate(vals)
+                            if var in ['heading', 'heading_smooth']:
+                                vals_arr = np.unwrap(vals_arr)
+                            # if var == 'wing_left':
+                            #     vals_arr = 3*np.pi/2 - vals_arr
+                            vals_arr *= 180 / np.pi
+                            if vals is not None:
+                                # xs = np.linspace(0, len(vals_arr)/self.framerate, len(vals_arr))
+                                # self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
+                                xs = np.linspace(0, self.current_time - self.start_time, len(vals_arr))
+                                plot.dataItems[num].setData(x=xs, y=vals_arr)
+            # calculate and plot the L-R and L+R WBA data
+            if 'wing_left' in self.data.keys() and 'wing_right' in self.data.keys() and self.wingbeat_analysis:
+                left_wing, right_wing = np.concatenate(self.data['wing_left']), np.concatenate(self.data['wing_right'])
+                window = 11
+                # weights = np.ones(window)
+                weights = np.arange(window).astype(float)
+                weights /= weights.sum()
+                left_wing = np.convolve(left_wing, weights, 'valid') * 180 / np.pi
+                right_wing = np.convolve(right_wing, weights, 'valid') * 180 / np.pi
+                lmr = -(left_wing + right_wing)  # flip lmr so that the sign matches the direction of turning
+                lpr = 360 - (abs(left_wing) + abs(right_wing))
+                xs = np.linspace(0, self.current_time - self.start_time, len(lmr))
+                self.wba_plot_lmr.dataItems[0].setData(x=xs, y=lmr)
+                self.wba_plot_lpr.dataItems[0].setData(x=xs, y=lpr)
+        if 'left' in self.wing_edges.keys() and 'right' in self.wing_edges.keys() and self.wingbeat_analysis:
+            for side in ['left', 'right']:
+                angle = 0
+                if f"wing_{side}" in self.data.keys():
+                    angles = self.data[f"wing_{side}"][-1]
+                    no_nans = np.isnan(angles) == False
+                    if np.any(no_nans):
+                        angle = angles[np.argmax(abs(angles[no_nans]))]
+                angle += 3*np.pi / 2
+                # invert for the left plot
+                edge = self.wing_edges[side]
+                marker = self.markers[f"wing_hinge_{side}"]
+                    # change the pen to standby if the angle is nan
+                if np.isnan(angle):
+                    edge.setPen(self.standby_pen)
+                    # use the last angle
+                else:
+                    edge.setPen(marker.line_pen)
+                    # update the edge angle
+                    extent = self.wing_radius * np.array([np.cos(angle), np.sin(angle)])
+                    edge.setData(
+                        [marker.coord[0], extent[0]], [marker.coord[1], extent[1]])
 
     def save_vars(self):
         config = configparser.ConfigParser()
@@ -678,6 +822,15 @@ class VideoGUI(QtWidgets.QMainWindow):
                 new_val = self.__getattribute__(val).text()
                 if float(new_val) > 0 and float(new_val) != np.nan:
                     config.set('video_parameters', var, new_val)
+        # update marker_coords using the stored markers
+        for lbl, marker in self.markers.items():
+            self.marker_coords[lbl] = marker.coord
+        # save the marker coordinates
+        for key, coord in self.marker_coords.items():
+            # convert to a string
+            string = f"{int(coord[0])},{int(coord[1])}"
+            # replace the old coordinate
+            config.set('fly_markers', key, string)
         # save config file
         with open(self.config_fn, 'w') as configfile:
             config.write(configfile)
@@ -695,13 +848,13 @@ class VideoGUI(QtWidgets.QMainWindow):
 
 
 class FrameUpdater():
-    def __init__(self, height, width, display_rate=30., buffer_fn='_buffer.npy', config_fn='./video_player.config'):
+    def __init__(self, height, width, display_rate=60., buffer_fn='_buffer.npy', config_fn='./video_player.config', wingbeat_analysis=False):
         self.buffer_fn = buffer_fn
         self.height = height
         self.width = width
         self.interval = int(round(1000./display_rate))
         self.ind = 0
-        self.gui = VideoGUI(img_height=self.height, img_width=self.width, config_fn=config_fn)
+        self.gui = VideoGUI(img_height=self.height, img_width=self.width, config_fn=config_fn, wingbeat_analysis=wingbeat_analysis)
         # setup a QTimer to update the frame values instead of a simple for loop
         self.timer = QtCore.QTimer()
         self.timer.setInterval(self.interval)
@@ -753,33 +906,30 @@ class FrameUpdater():
             # extract the new frame and the headings data
             img = data['img']
             heading, heading_smooth, com_shift = data['heading'], data['heading_smooth'], data['com_shift']
+            wing_left, wing_right = data['wing_left'], data['wing_right']
             # print(f"shift = {com_shift}")
             # update the frame and heading
             self.gui.update_frame(img)
             # update the stored data
-            self.gui.update_data(heading=heading, heading_smooth=heading_smooth, com_shift=com_shift)
+            self.gui.update_data(heading=heading, heading_smooth=heading_smooth, com_shift=com_shift, wing_left=wing_left, wing_right=wing_right)
             self.gui.update_plots()
 
 
 if __name__ == "__main__":
-    DATA_FN = "_buffer.npy"
     # get optional arguments
     arg_list = list(sys.argv[1:])
     # check for the height and width arguments
     arg_dict = {}
     arg_dict['height'], arg_dict['width'] = 480, 640
     for key, var, dtype in zip(
-            ['-h', '-w', '-config_fn'], ['height', 'width', 'config_fn'], [int, int, str]):
-        inds = [key in arg for arg in arg_list]
+            ['-h', '-w', '-config_fn', '-wingbeat'], ['height', 'width', 'config_fn', 'wingbeat_analysis'], [int, int, str, bool]):
+        inds = [key == arg for arg in arg_list]
         if any(inds):
             ind = np.where(inds)[0][0]
-            arg_dict[var] = dtype(arg_list[ind + 1])
-    # start a thread to play an example video 
-    # play_video("./revolving_fbar_different_starts/2023_04_27_15_29_05")
-    # setup the plotting loop
+            if dtype == bool:
+                arg_dict[var] = dtype(arg_list[ind + 1] == 'True')
+            else:
+                arg_dict[var] = dtype(arg_list[ind + 1])
     app = pg.mkQApp()
-    # animation = FrameUpdater(
-    #     buffer_fn=DATA_FN, height=int(arg_dict['height']),
-    #     width=int(arg_dict['width']))
     animation = FrameUpdater(buffer_fn=None, **arg_dict)
     sys.exit(app.exec_())
