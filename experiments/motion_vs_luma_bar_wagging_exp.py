@@ -75,10 +75,11 @@ arr[..., -1] = 255
 # arr[:, 1:][:, mseq == 1, 2] = 255
 arr[:, 1:][:, mseq == 1] = 255
 # arr[:] = 255
-# arr[..., :2] = 0
+arr[..., :2] = 0
 # arr[:] = 0
 cyl.set_image(np.copy(arr))
-arr[..., :-1] = 128
+arr[..., :3] = 128
+arr[..., :2] = 0
 arr[..., -1] = 255
 cyl_gray.set_image(arr)
 # grab a random 30 degrees of arr as the bar texture
@@ -105,8 +106,8 @@ upper_bound = int(bar_width/2)
 dist = int(round(.25 * xres))
 lower_bound += dist
 upper_bound += dist
-bar_arr[:, lower_bound:upper_bound, :3][:, bar_vals == 1] = 255
-bar_arr[:, lower_bound:upper_bound, 3] = 255                                       # alpha
+bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
+bar_arr[:, lower_bound:upper_bound, 3] = 255                    # alpha
 bar.set_image(bar_arr)
 
 # prep for using an msequence for the orientations
