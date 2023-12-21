@@ -16,12 +16,16 @@ For setting up a magnocube:
     - install a python 3.10 or greater
     - add the Scripts folder to the path environment variable
         - on my windows machine, this is found under C:\Users\{username}\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\Scripts
-4. holocube:
+4. PySpin:
+    - download the Spinnaker Python SDK that matches the installed SpinView version. For example, if you installed SpinnakerSDK_FULL_3.1.0.79_x64.exe, download spinnaker_python-3.1.0.79-cp310-cp310-win_amd64.zip.
+    - unzip if necessary and then run the following from within the unzipped folder, replacing the filename with the appropriate version:
+    ```pip install spinnaker_python-3.1.0.79-cp310-cp310-win_amd64.whl```
+5. holocube:
     - git clone the file and install from requirements.txt using pip:
     ```pip install -r requirements.txt```
     - pyglet is the only package that requires a specific version, but requirements.txt should specify that. You can manually install the last working verion with pip:
     ```pip install pyglet==1.5.27```
-5. try it!
+6. try it!
     - if everything installed as expected, you should be able to run the test.py and run.py scripts. 
     - test.py makes a window in the main display to help test new stimuli
     - run.py uses a secondary display to project stimuli on a cube arena, for instance
