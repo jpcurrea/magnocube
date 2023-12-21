@@ -663,6 +663,7 @@ class Camera():
         """Simple loop for collecing frames. Alternative using list append."""
         # until stop signal, capture frames in the buffer
         self.frame_num = 0
+        self.buffer_start, self.buffer_stop = 0, 0
         # todo: make a numpy array for storing frames between heading updates
         # the size of the buffer should be the ratio of the camera and the stimulus framerates
         # buffer_size = self.framerate / self.
@@ -681,7 +682,8 @@ class Camera():
             # todo: convert to using a start and stop point in the buffer to function circularly
             self.buffer[self.buffer_stop] = self.frame.reshape((self.height, self.width))
             self.buffer_stop += 1
-            self.frame_num += 1
+            self.buffer_stop %= len(self.buffer)
+            # self.frame_num += 1
             # self.frames_to_process += [self.frame]
             # if self.storing:
             #     self.frames.put(self.frame)
@@ -714,6 +716,7 @@ class Camera():
             # self.buffer[self.buffer_ind] = self.frame
             self.buffer[self.buffer_stop % len(self.buffer)] = self.frame
             self.buffer_stop += 1
+            self.buffer_stop %= len(self.buffer)
             self.vid_frame_num += 1
             # self.frames_to_process += [self.frame]
             if self.vid_frame_num % self.num_frames == 0:
@@ -755,7 +758,7 @@ class Camera():
                 if self.frame.ndim > 2:
                     self.frame = self.frame[..., 0]
                 assert self.buffer_ind < len(self.buffer), "Buffer is too small to store frames at this framerate"
-                self.buffer[self.buffer_ind] = self.frame
+                self.buffer[self.buffer_stop] = self.frame
                 self.buffer_ind += 1
             self.playing = True
             self.update_heading()
@@ -813,7 +816,7 @@ class Camera():
 
     def store_frame(self):
         """Store the next frame."""
-        if self.frames_stored < self.num_frames:
+        if self.frames_stored < self.frame_num:
             frame = self.frames.get().reshape(self.height, self.width)
             frame = frame.astype('uint8')
             self.video_writer.writeFrame(frame)
@@ -829,7 +832,7 @@ class Camera():
             if not cancel:
                 while self.frames_stored < self.frame_num:
                     self.store_frame()
-                    print_progress(self.frames_stored, self.num_frames)
+                    print_progress(self.frames_stored, self.frame_num)
 #        if "save_fn" in dir(self) and not self.dummy:
         if "save_fn" in dir(self):
             if 'video_writer' in dir(self):
@@ -1068,7 +1071,7 @@ class Camera():
         # the center of mass calculations may be the slowest part here. CUDA should 
         # help with that.
         # print(self.buffer_stop - self.buffer_start)
-        if self.playing and self.buffer_stop > self.buffer_start:
+        if self.playing and self.buffer_stop != self.buffer_start:
             # print(self.buffer_ind)
             # try:
             #     self.import_config()
@@ -1087,8 +1090,7 @@ class Camera():
             # frame = self.frame
             # frames = [self.frames_to_process[-1]]
             # frames = np.copy(self.buffer[0: self.buffer_ind])
-            if self.buffer_stop >= len(self.buffer):
-                self.buffer_stop %= len(self.buffer)
+            if self.buffer_stop < self.buffer_start:
                 # frames = np.append(self.buffer[self.buffer_start:], self.buffer[:self.buffer_stop], axis=0)
                 include = np.append(np.arange(self.buffer_start, len(self.buffer)), np.arange(0, self.buffer_stop))
             else:
@@ -1137,11 +1139,10 @@ class Camera():
                     head = outer_ring < thresh
                 else:
                     head = outer_ring > thresh
-                if len(self.outer_angs) == len(head):
-                    head_angs = self.outer_angs[np.newaxis][head]
-                    print(head_angs)
-                    headings = scipy.stats.circmean(
-                        head_angs, low=-np.pi, high=np.pi, axis=1)
+                if len(self.outer_angs) == head.shape[-1]:
+                    outer_coords_filtered = self.outer_coords[np.newaxis] * head[..., np.newaxis]
+                    mean_coord = outer_coords_filtered.sum(1) / head.sum(1)[:, np.newaxis]
+                    headings = np.arctan2(mean_coord[..., 1], mean_coord[..., 0])
                     # headings += [heading]
             else:
                 # 2. find the tail and head orientation by thresholding the outer ring
@@ -1156,14 +1157,17 @@ class Camera():
                 #     tail_angs += [outer_angs[ind]]
                 # tail_angs = [outer_angs[ind] for ind in tail]
                 # tail_dir = scipy.stats.circmean(tail_angs, low=-np.pi, high=np.pi, axis=1)
-                tail_dir = np.zeros(len(tail), dtype=float)
-                for num, (ind) in enumerate(tail):
-                    if any(ind):
-                        # tail_dir[num] = scipy.stats.circmean(self.outer_angs[ind], low=-np.pi, high=np.pi)
-                        # consider that it may be faster to take the 2D mean of the x, y coordinates
-                        # and then find the angle of that, instead of using the circular mean
-                        mean_coord = self.outer_coords[ind].mean(0)
-                        tail_dir[num] = np.arctan2(mean_coord[1], mean_coord[0])
+                # tail_dir = np.zeros(len(tail), dtype=float)
+                # for num, (ind) in enumerate(tail):
+                #     if any(ind):
+                #         # tail_dir[num] = scipy.stats.circmean(self.outer_angs[ind], low=-np.pi, high=np.pi)
+                #         # consider that it may be faster to take the 2D mean of the x, y coordinates
+                #         # and then find the angle of that, instead of using the circular mean
+                #         mean_coord = self.outer_coords[ind].mean(0)
+                #         tail_dir[num] = np.arctan2(mean_coord[1], mean_coord[0])
+                outer_coords_filtered = self.outer_coords[np.newaxis] * tail[..., np.newaxis]
+                mean_coord = outer_coords_filtered.sum(1) / tail.sum(1)[:, np.newaxis]
+                tail_dir = np.arctan2(mean_coord[..., 1], mean_coord[...,0])
                 # mean_coords = self.outer_coords[tail].mean((0, 1))
                 # tail_dir = np.arctan2(mean_coords[1], mean_coords[0])
                 # print(f"tail dir = {tail_dir}")
@@ -1213,13 +1217,16 @@ class Camera():
                         head = inner_ring > thresh
                     head[include == 0] = False
                     # use the coordinates to speed up the angle calculation
-                    for num, (ind) in enumerate(head):
-                        if any(ind):
-                            # angs = self.inner_angs[ind]
-                            # heading = scipy.stats.circmean(angs, low=-np.pi, high=np.pi)
-                            # headings[num] = scipy.stats.circmean(self.inner_angs[ind], low=-np.pi, high=np.pi)
-                            head_mean = self.inner_coords[ind].mean(0)
-                            headings[num] = np.arctan2(head_mean[1], head_mean[0])
+                    inner_coords_filtered = self.inner_coords[np.newaxis] * head[..., np.newaxis]
+                    mean_coord = inner_coords_filtered.sum(1) / head.sum(1)[:, np.newaxis]
+                    headings = np.arctan2(mean_coord[..., 1], mean_coord[..., 0])
+                    # for num, (ind) in enumerate(head):
+                    #     if any(ind):
+                    #         # angs = self.inner_angs[ind]
+                    #         # heading = scipy.stats.circmean(angs, low=-np.pi, high=np.pi)
+                    #         # headings[num] = scipy.stats.circmean(self.inner_angs[ind], low=-np.pi, high=np.pi)
+                    #         head_mean = self.inner_coords[ind].mean(0)
+                    #         headings[num] = np.arctan2(head_mean[1], head_mean[0])
             # headings = np.array(headings)
             if self.com_correction:
                 diffs = []
@@ -1232,10 +1239,7 @@ class Camera():
                 # convert from heading angle to head position for each heading
                 heading_pos = self.inner_r * np.array([np.sin(headings), np.cos(headings)]).T
                 # calculate direction vector between the center of the fly and the head
-                try:
-                    direction = heading_pos + diffs
-                except:
-                    breakpoint()
+                direction = heading_pos + diffs
                 headings = np.arctan2(direction[:, 0], direction[:, 1])
                 if not np.any(np.isnan(direction[-1])):
                     # store the shift in the center of mass for plotting
@@ -1404,7 +1408,8 @@ class Camera():
                 self.display_data['com_shift'] += [diffs]
                 self.display_data['heading'] += [headings]
             # now add the frames to the queue for recording data
-            for frame in np.copy(frames):
+            # for frame in np.copy(frames):
+            for frame in frames:
                 if self.storing:
                     self.frames.put(frame)
                     self.frame_num += 1
