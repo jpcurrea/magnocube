@@ -512,7 +512,7 @@ class VideoGUI(QtWidgets.QMainWindow):
             ring.setRect(self.center_x - slider.x, self.center_y - slider.x,
                          2 * slider.x, 2 * slider.x)
             # self.update_plots()
-            # self.save_vars()
+            self.save_vars()
         self.inner_slider.slider.valueChanged.connect(
             partial(update_val, slider=self.inner_slider, ring=self.inner_ring))
         self.outer_slider.slider.valueChanged.connect(
@@ -756,7 +756,8 @@ class VideoGUI(QtWidgets.QMainWindow):
                         if len(vals) > 0:
                             vals_arr = np.concatenate(vals)
                             if var in ['heading', 'heading_smooth']:
-                                vals_arr = np.unwrap(vals_arr)
+                                # replace NaNs in vals_arr with nearest value
+                                vals_arr = np.unwrap(np.nan_to_num(vals_arr))
                             # if var == 'wing_left':
                             #     vals_arr = 3*np.pi/2 - vals_arr
                             vals_arr *= 180 / np.pi
@@ -805,14 +806,20 @@ class VideoGUI(QtWidgets.QMainWindow):
     def save_vars(self):
         config = configparser.ConfigParser()
         config.read(self.config_fn)
-        vars = ['inner_r', 'outer_r', 'wing_r', 'thresh'] 
-        vals = [self.inner_slider.x, self.outer_slider.x, self.wing_slider.x, self.threshold_slider.x]
+        vars = ['inner_r', 'outer_r', 'thresh'] 
+        vals = [self.inner_slider.x, self.outer_slider.x, self.threshold_slider.x]
+        if self.wingbeat_analysis:
+            vars += ['wing_r']
+            vals += [self.wing_slider.x]
         for var, val in zip(vars, vals):
             config.set('video_parameters', var, str(val))
         # set the new values
         if 'invert_check' in dir(self):
             config.set('video_parameters', 'invert',
                     str(self.invert_check.isChecked()))
+        if 'flip_check' in dir(self):
+            config.set('video_parameters', 'flipped',
+                    str(self.flip_check.isChecked()))
         # save experiment parameter options
         for key, val in self.experiment_parameters.items():
             config.set('experiment_parameters', key, val.currentText())
