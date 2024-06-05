@@ -501,7 +501,20 @@ class Holocube_window(pyglet.window.Window):
     def set_rot(self, rot):
         '''Set the rotation matrix around the viewpoint'''
         self.rot = rot
-        
+
+    def set_rot_angles(self, yaw=0, pitch=0, roll=0):
+        '''Set the rotation matrix around the viewpoint given specific angles.'''
+        # make the 3 rotation matrices
+        sint, cost = sin(yaw), cos(yaw)
+        yaw_mat = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+        sint, cost = sin(pitch), cos(pitch)
+        pitch_mat = array([[1, 0, 0], [0, cost, -sint], [0, sint, cost]])
+        sint, cost = sin(roll), cos(roll)
+        roll_mat = array([[cost, -sint, 0], [sint, cost, 0], [0, 0, 1]])
+        # multiply them together
+        # self.rot = dot(dot(yaw_mat, pitch_mat), roll_mat)
+        self.rot = dot(dot(pitch_mat, roll_mat), yaw_mat)
+
     # alter position and heading relative to global axes
     def set_px(self, dis):
         '''Set the x position (left and right) of the viewpoint'''
@@ -539,6 +552,13 @@ class Holocube_window(pyglet.window.Window):
         mat = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
         dot(mat, self.rot, out=self.rot)
         
+    def set_ry(self, ang=0):
+        '''Increment current heading around the global y axis'''
+        sint, cost = sin(ang), cos(ang)
+        mat = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+        self.rot = mat
+        # dot(mat, self.rot, out=self.rot)
+        
     def inc_rz(self, ang=0):
         '''Increment current heading around the global z axis'''
         sint, cost = sin(ang), cos(ang)
@@ -556,8 +576,13 @@ class Holocube_window(pyglet.window.Window):
         
     def inc_thrust(self, dis):
         '''Move the viewpoint forward and backward, relative to heading'''
-        self.pos += dis*dot(self.rot, array([0.,0.,1.]))
+        # self.pos += dis*dot(self.rot, array([0.,0.,1.]))
+        self.pos += dis*array([0.,0.,1.])
         
+    def inc_pos(self, pos_delta):
+        '''Increment the current position by a 3D vector'''
+        self.pos += pos_delta
+
     def inc_pitch(self, ang=0):
         '''Increment current heading in pitch'''
         sint, cost = sin(ang), cos(ang)
@@ -575,17 +600,27 @@ class Holocube_window(pyglet.window.Window):
         if not np.isnan(ang):
             self.yaw = ang
             sint, cost = sin(ang), cos(ang)
-            self.rot = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+            mat = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+            dot(self.rot, mat, out=self.rot)
         else:
             pass
-        # mat = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
-        # dot(self.rot, mat, out=self.rot)
 
     def inc_roll(self, ang=0):
         '''Increment current heading in roll'''
         sint, cost = sin(ang), cos(ang)
         mat = array([[cost, -sint, 0], [sint, cost, 0], [0, 0, 1]])
         dot(self.rot, mat, out=self.rot)
+
+    def set_roll(self, ang=0):
+        '''Increment current heading in yaw'''
+        if not np.isnan(ang):
+            self.roll = ang
+            sint, cost = sin(ang), cos(ang)
+            rot = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+            mat = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+            dot(self.rot, mat, out=self.rot)
+        else:
+            pass
 
     # reset to center position and straight heading
     def reset_pos(self):

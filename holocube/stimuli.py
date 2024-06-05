@@ -141,6 +141,10 @@ class Movable(pyglet.graphics.Group):
     def set_colorf(self, color=0.0):
         self.vl.colors = array(repeat(color * 255, self.num * 3), dtype='byte')
 
+    def reset_pos_rot(self):
+        self.pos = array([0, 0, 0.])
+        self.rot = array([0, 0, 0.])
+
     def set_pos(self, pos):
         self.pos[:] = pos
 
@@ -275,6 +279,11 @@ class Shape(Movable):
             self.colors = array(repeat(color * 255, self.num * 3), dtype='byte')
         if add: self.add()
 
+class Sphere(Shape):
+    """A sphere with a given radius and color."""
+    def __init__(self, window, radius, color=1, add=False):
+        # 
+        super().__init__(window, coords, color, add)
 
 class Horizon(Shape):
     '''A horizon rendered out to some large distance off.'''
@@ -354,9 +363,10 @@ class Spherical_segment(Movable):
 class Points(Movable):
 
     def __init__(self, window, num=1000, dims=[(-1, 1), (-1, 1), (-1, 1)],
-                 color=1., pt_size=1, add=False):
+                 color=1., pt_size=1, add=False, method='random'):
 
         super(Points, self).__init__(window)
+        self.method = method
         self.gl_type = GL_POINTS
         self.pt_size = pt_size
         self.num = num
@@ -394,10 +404,38 @@ class Points(Movable):
         self.txtcoords = None
 
     def init_coords(self):
-        self.coords = array(
-            [random.uniform(self.dims[0][0], self.dims[0][1], self.num),
-             random.uniform(self.dims[1][0], self.dims[1][1], self.num),
-             random.uniform(self.dims[2][0], self.dims[2][1], self.num)])
+        if self.method == 'random':
+            self.coords = array(
+                [random.uniform(self.dims[0][0], self.dims[0][1], self.num),
+                random.uniform(self.dims[1][0], self.dims[1][1], self.num),
+                random.uniform(self.dims[2][0], self.dims[2][1], self.num)])
+        elif self.method == 'cloud':
+            # use a gaussian distribution to make a cloud of points within 
+            # the specified dims
+            self.coords = array(
+                [random.normal(0, 1, self.num),
+                random.normal(0, 1, self.num),
+                random.normal(0, 1, self.num)])
+            dim_sizes = self.dims[:, 1] - self.dims[:, 0]
+            self.coords = self.coords * dim_sizes[:, np.newaxis] / 2
+        elif 'grid' in self.method:
+            # self.num has to be a perfect cube to use this method
+            side_num = int(ceil(self.num ** (1 / 3)))
+            if side_num ** 3 != self.num:
+                self.num = side_num
+                self.colors = array(repeat(self.color * 255, self.num * 3),
+                                    dtype='byte')
+            xs = np.linspace(self.dims[0][0], self.dims[0][1], side_num)
+            ys = np.linspace(self.dims[1][0], self.dims[1][1], side_num)
+            zs = np.linspace(self.dims[2][0], self.dims[2][1], side_num)
+            xs, ys, zs = np.meshgrid(xs, ys, zs)
+            self.coords = np.array([xs.flatten(), ys.flatten(), zs.flatten()])
+            if self.method == 'hexgrid':
+                # modify the regular grid of coords to be a hex grid
+                self.coords[1] = self.coords[1] + 0.5 * (self.coords[0] % 2)
+        print(f"shape = {self.coords.shape}")
+            
+
 
     def set_pt_size(self, pt_size):
         self.pt_size = pt_size
@@ -659,6 +697,7 @@ class Disks(Movable):
         self.gl_type = GL_POLYGON
         self.txtcoords = None
         if add: self.add
+
 
 
 class sphere_lines_class(Movable):
@@ -2260,3 +2299,6 @@ class Quad_image(Movable):
 # todo: make a Fourier Bar stimulus, centered correctly
 # todo: make a bar stimulus, properly centered with the arena
 # todo: make a RandomGrating stimulus
+# todo: make Sphere and Spheres classes for objects that change in size
+            
+# class Sphere()
