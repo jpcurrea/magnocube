@@ -15,6 +15,7 @@ orig_bg = hc.window.bg_color
 # experiment: add this experiment to the scheduler
 DATA_FOLDER = "./"
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=DATA_FOLDER)
+# tracker.add_virtual_object(name='bg', motion_gain=0, object=True)
 exp_starts = [[hc.window.set_far, 5],
               [hc.window.set_bg, [0., 0., 0., 1.]],
               [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1],
@@ -33,13 +34,15 @@ headings = np.append(headings, headings[::-1])
 
 # add a test different heading locations with a loop
 starts = [[pts.switch, True],
-          [hc.camera.reset_display_headings]]
+          [hc.camera.reset_display_headings],
+          [tracker.virtual_objects['fly_heading'].add_motion, headings]
+         ]
 middles = [[hc.camera.import_config],
            [hc.camera.get_background, hc.window.get_frame],
            [tracker.update_objects, hc.camera.update_heading],
-           [hc.window.set_yaw, tracker.virtual_objects['fly_heading'].get_angle],
-        #    [hc.camera.update_north, hc.window.get_yaw],
-           [pts.set_ry, headings]]
+           [hc.window.set_rot, tracker.virtual_objects['fly_heading'].get_rot],
+        #    [hc.window.set_yaw, tracker.virtual_objects['fly_heading'].get_angle],
+          ]
 ends = [[pts.switch, False],
         [hc.camera.reset_display_headings],
         [hc.window.reset_rot]]

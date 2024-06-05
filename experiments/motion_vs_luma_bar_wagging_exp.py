@@ -51,15 +51,17 @@ tracker.add_virtual_object(name='bg', motion_gain=-1,
 sequence_length = 2**9
 # xres = 96
 xres = sequence_length
-cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=-.2*pi,
-                         top=.2*pi, xres=xres,
+pad = .25
+bottom, top = - np.arctan2(3, 2*np.sqrt(2)), np.arctan2(1, 2*np.sqrt(2))
+cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
+                         top=top, xres=xres,
                          yres=xres, xdivs=64, ydivs=1, dist=2)
-cyl_gray = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=-.2*pi,
-                              top=.2*pi, xres=xres,
+cyl_gray = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
+                              top=top, xres=xres,
                               yres=xres, xdivs=64, ydivs=1, dist=2)
 bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, 
-                                bottom=-.2*pi, top=.2*pi, xres=xres, yres=xres, xdivs=64, ydivs=1,
-                                dist=1)
+                         bottom=bottom, top=top, xres=xres, yres=xres, xdivs=64, ydivs=1,
+                         dist=1)
 
 
 # make a random period gratingx
@@ -141,7 +143,8 @@ exp_starts = [[hc.window.set_far, 3],
               [tracker.h5_setup],
               [hc.camera.storing_start, -1, FOLDER, None, True],
               [tracker.store_camera_settings],
-              [tracker.virtual_objects['bar'].set_motion_parameters, 0, hc.camera.update_heading],
+            #   [tracker.virtual_objects['bar'].set_motion_parameters, 0, hc.camera.update_heading],
+              [tracker.virtual_objects['bar'].set_motion_parameters, 0, 0],
               [hc.camera.clear_headings],
               [tracker.add_exp_attr, 'video_fn', hc.camera.get_save_fn],
               [tracker.add_exp_attr, 'experiment', os.path.basename(FOLDER)],
@@ -178,7 +181,9 @@ for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
             middles = [
                 [hc.camera.get_background, hc.window.get_frame],
                 [tracker.update_objects, hc.camera.update_heading],
+                # [print, tracker.virtual_objects['bar'].get_angle, hc.camera.get_heading],
                 [bar.set_ry, tracker.virtual_objects['bar'].get_angle],
+                # [bar.set_ry, hc.camera.get_heading],
                 [hc.window.record_frame]
             ]
             ends = [

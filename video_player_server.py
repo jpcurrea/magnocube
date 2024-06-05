@@ -1,5 +1,6 @@
 from functools import partial
 import configparser
+import cupy as cp
 import numpy as np
 import os
 import pickle
@@ -213,6 +214,8 @@ class VideoGUI(QtWidgets.QMainWindow):
             The number of pixels to pad the image with.
         wingbeat_analysis : bool
             Whether to perform wingbeat analysis.
+        heading_pad : float
+            The maximum and minimum relative heading value.
         """
         self.wingbeat_analysis = wingbeat_analysis
         self.display_rate = display_rate
@@ -235,6 +238,7 @@ class VideoGUI(QtWidgets.QMainWindow):
         self.inner_radius, self.outer_radius = inner_radius, outer_radius
         self.tracking_active = False
         self.import_config()
+        self.config_update_time = time.time()
         super().__init__()
         # set the title
         self.setWindowTitle("Live Feed")
@@ -242,6 +246,8 @@ class VideoGUI(QtWidgets.QMainWindow):
         # self.setGeometry(100, 100, img_width, img_height)
         # setup the components
         self.setup()
+        # disable the autoRange for the heading plot
+        self.heading_plot.enableAutoRange(False)
         # show all the widgets
         self.show()
         # update the plots
@@ -256,9 +262,9 @@ class VideoGUI(QtWidgets.QMainWindow):
             config.read(self.config_fn)
             # self.genotype_list = config.getList('experiment_parameters','genotype')
             # check if parameters stored
-            keys = ['inner_r', 'outer_r', 'wing_r', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'camera_fps']
-            vars = ['inner_radius', 'outer_radius', 'wing_radius', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'framerate']
-            dtypes = [float, float, float, float, bool, bool, bool, float, float]
+            keys = ['inner_r', 'outer_r', 'wing_r', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'camera_fps', 'time_scale', 'heading_pad']
+            vars = ['inner_radius', 'outer_radius', 'wing_radius', 'thresh', 'invert', 'rotate270', 'flipped', 'kalman_jerk_std', 'kalman_noise', 'framerate', 'time_scale', 'heading_pad']
+            dtypes = [float, float, float, float, bool, bool, bool, float, float, float, float, float]
             for key, var, dtype in zip(keys, vars, dtypes):
                 if key in config['video_parameters'].keys():
                     if dtype == bool:
@@ -294,12 +300,36 @@ class VideoGUI(QtWidgets.QMainWindow):
         # self.view_relative = MarkedViewBox(gui=self, row=0, col=1)
         # self.window.addItem(self.view_relative, row=0, col=1, rowspan=1, colspan=1)
         # make the raw heading data a low opacity gray line
-        self.heading_plot = self.window.addPlot(row=1, col=0, colspan=2, title='heading')
+        self.heading_plot = self.window.addPlot(row=1, col=0, colspan=2)
         self.heading_plot_raw = self.heading_plot.plot(x=[], y=[], pen=pg.mkPen(.2))
         # and add a full opacity line for the Kalman Filter output
         self.heading_plot_smooth = self.heading_plot.plot(x=[], y=[])
         # self.heading_plot.setOpacity(.25)
         self.heading_plot.setMaximumHeight(200)
+        # add ylabel to the left of the left axis saying "unwrapped heading (deg)"
+        self.heading_plot.setLabel('left', 'unwrapped heading (°)')
+        # todo: make the x-label a button to open a dialog for setting the time scale
+        # add a button to set the time scale
+        # self.scale_button = QtWidgets.QPushButton("Set Plot Scales")
+        # self.scale_button.clicked.connect(self.set_scale)
+        # self.heading_plot.layout.addItem(self.scale_button, 3, 0)
+        # # add another y-axis on the right for the centered coordinates
+        self.heading_relative_axis = pg.AxisItem('right')
+        self.heading_plot.layout.addItem(self.heading_relative_axis, 2, 3)
+        # self.heading_plot.getAxis('right').linkToView(self.view_relative)
+        # set the range of the right axis
+        self.heading_relative_axis.setRange(-1.2*self.heading_pad, 1.2*self.heading_pad)
+        # add right label
+        self.heading_relative_axis.setLabel('centered heading')
+        # add a tick for every 45 degrees within the range
+        self.heading_relative_axis.setTicks([[(i, str(i)) for i in range(-int(self.heading_pad), int(self.heading_pad)+1, 45)]])
+        # self.heading_plot.showAxis('right')
+        # place label to the right of the right axis
+        # right axis should always go between -self.heading_pad and self.heading_pad
+        self.heading_plot.getAxis('right').setRange(-self.heading_pad, self.heading_pad)
+        self.heading_plot.getAxis('left').setRange(-self.heading_pad, self.heading_pad)
+        # add a label for the shared x- or time axis
+        self.heading_plot.setLabel('bottom', 'time (s)')
         # # WBA plots
         # self.wba_plot = self.window.addPlot(row=2, col=0, colspan=2, title='WBA')
         # self.wba_plot_left = self.wba_plot.plot(x=[], y=[], pen=pg.mkPen(255 * blue[0], 255 * blue[1], 255 * blue[2], 150, width=1))
@@ -381,6 +411,24 @@ class VideoGUI(QtWidgets.QMainWindow):
         # set background to black
         self.setStyleSheet("color: white;")
         self.setStyleSheet("background-color: black;")
+
+    def set_scale(self):
+        """Open a dialog window to allow custom time and heading scales."""
+        # open a new dialog window
+        self.scale_dialog = QtWidgets.QDialog()
+        self.scale_dialog.setWindowTitle("Set Scale")
+        # create a horizontal layout for each slider
+        self.scale_layout = QtWidgets.QHBoxLayout()
+        # create a slider for the time scale
+        self.time_scale_slider = Slider(1, 1000, var_lbl="Time Scale")
+        self.time_scale_slider.slider.setValue(self.time_scale)
+        self.time_scale_slider.setLabelValue(self.update_time_scale)
+        # add tick marks for [10, 20, 60, 120, 240, 480, 960] seconds
+        self.time_scale_slider.slider.setTickInterval(10)
+        self.time_scale_slider.slider.setTickPosition(QtWidgets.QSlider.TicksLeft)
+        # create a slider for the heading scale
+        # self.heading_scale_slider = Slider(1, 1000, var_lbl="Heading Scale")
+
 
     def setup_rings_and_arrow(self, linewidth=10):
         # inner ring
@@ -693,27 +741,55 @@ class VideoGUI(QtWidgets.QMainWindow):
             # if not isinstance(vals, list):
             #     print(key, vals)
             if len(vals) > 0:
-                vals = np.concatenate(vals)
+                try:
+                    vals = np.concatenate(vals)
+                except:
+                    print(vals[-5:])
                 if len(vals) > 0:
                     if key != 'img':
                         # make special changes to the heading data
                         if key in ['heading', 'heading_smooth']:
-                            vals = [np.pi - val for val in vals]
+                            # vals = [np.pi - val for val in vals]
+                            vals = np.pi - vals
                             data[key] = vals
                         val = vals[-1]
                         # store current value as an attribute
                         self.__setattr__(key, val)
                         if key in self.data.keys():
-                            self.data[key] += [vals]
+                            # self.data[key] += [vals]
+                            if len(self.data[key]) > 0:
+                                self.data[key] = np.concatenate([self.data[key], vals], axis=0)
+                            else:
+                                self.data[key] = vals
                         else:
-                            self.data[key] = [vals]
+                            self.data[key] = vals
                         any_changed = True
+        # # go through the heading and heading_smooth datasets, removing any NaNs
+        for key in ['heading', 'heading_smooth']:
+            # replace NaNs in vals_arr with nearest value
+            vals_arr = self.data[key]
+            if len(vals_arr) > 0:
+                nans = np.isnan(vals_arr)
+                if np.any(nans):
+                    nan_inds = np.where(nans)[0]
+                    non_nans = np.where(~nans)[0]
+                    # for each nan_ind, replace it with the nearest non-NaN value
+                    for nan_ind in nan_inds:
+                        # find the previous non-NaN value
+                        prev_non_nan = max(np.where(non_nans[:nan_ind])[0])
+                        # replace the NaN with the nearest non-NaN value
+                        vals_arr[nan_ind] = vals_arr[prev_non_nan]
+                    self.data[key] = vals_arr
         #print(self.wing_left, self.heading)
         if any_changed:
             self.current_time = time.time()
 
     def update_plots(self):
         """Update the plotted data."""
+        # check if the config file has been updated every 5 seconds
+        if time.time() - self.config_update_time > 5:
+            self.config_update_time = time.time()
+            self.import_config()
         if np.isnan(self.heading):
             # print(self.data['heading'])
             self.tracking_active = False
@@ -754,27 +830,70 @@ class VideoGUI(QtWidgets.QMainWindow):
                     if var in self.data.keys():
                         vals = self.data[var]
                         if len(vals) > 0:
-                            vals_arr = np.concatenate(vals)
+                            # vals_arr = np.concatenate(vals)
+                            vals_arr = vals
                             if var in ['heading', 'heading_smooth']:
                                 # replace NaNs in vals_arr with nearest value
-                                vals_arr = np.unwrap(np.nan_to_num(vals_arr))
+                                vals_arr = np.unwrap(vals_arr)
+                                # replace any NaNs with the 
                             # if var == 'wing_left':
                             #     vals_arr = 3*np.pi/2 - vals_arr
                             vals_arr *= 180 / np.pi
+                            # if np.any(abs(np.diff(vals_arr)) > 45):
+                            #     print(vals_arr)
                             if vals is not None:
                                 # xs = np.linspace(0, len(vals_arr)/self.framerate, len(vals_arr))
                                 # self.heading_plot.dataItems[num].setData(x=xs, y=vals_arr)
                                 xs = np.linspace(0, self.current_time - self.start_time, len(vals_arr))
                                 plot.dataItems[num].setData(x=xs, y=vals_arr)
+                            # if var == 'heading' and self.heading_plot.saveState()['view']['autoRange'] == [True, True]:
+                            if var == 'heading':
+                                # if relative axis is hidden, show it
+                                self.heading_relative_axis.show()
+                                miny, maxy = vals_arr[-1] - self.heading_pad, vals_arr[-1] + self.heading_pad
+                                # and the y ticks to be multiples of 45 degrees within the range
+                                # find the lowest multiple of 45 that is greater than miny
+                                # update the y-axis range to be +/- self.heading_pad of the last value
+                                plot.setYRange(miny, maxy)
+                                # update the x-axis range to be the last 10 seconds before the current time
+                                minx, maxx = self.current_time - self.start_time - self.time_scale, self.current_time - self.start_time
+                                plot.setXRange(minx, maxx)
+                                # and the x ticks to be every second
+                                time_scale = self.time_scale
+                            # else:
+                            #     miny, maxy = plot.viewRange()[1]
+                            #     # if autorange is on, hide the relative axis
+                            #     self.heading_relative_axis.hide()
+                            #     # plot x and y ticks based on the auto ranges
+                            #     minx, maxx = 0, self.current_time - self.start_time
+                            #     time_scale = self.current_time - self.start_time
+                            #     plot.setXRange(minx, maxx)
+                            # and the x ticks to be relative to the time range
+                            if time_scale <= 10:
+                                tick_interval = 1
+                            elif time_scale <= 60:
+                                tick_interval = 5
+                            else:
+                                tick_interval = 10
+                            # set the y ticks to be multiples of 45 degrees within the range
+                            miny_rnd = int(45 * np.ceil(miny / 45))
+                            maxy_rnd = int(45 * np.floor(maxy / 45))
+                            plot.getAxis('left').setTicks([[(i, str(i)) for i in range(miny_rnd, maxy_rnd + 1, 45)]])
+                            # similarly, set the x ticks to be multiples of tick_interval within the range
+                            minx_rnd = max(0, int(tick_interval * np.ceil(minx / tick_interval)))
+                            maxx_rnd = int(tick_interval * np.floor(maxx / tick_interval))
+                            plot.getAxis('bottom').setTicks([[(i, str(i)) for i in range(minx_rnd, maxx_rnd+tick_interval, tick_interval)]])
             # calculate and plot the L-R and L+R WBA data
             if 'wing_left' in self.data.keys() and 'wing_right' in self.data.keys() and self.wingbeat_analysis:
                 left_wing, right_wing = np.concatenate(self.data['wing_left']), np.concatenate(self.data['wing_right'])
-                window = 11
-                # weights = np.ones(window)
-                weights = np.arange(window).astype(float)
-                weights /= weights.sum()
-                left_wing = np.convolve(left_wing, weights, 'valid') * 180 / np.pi
-                right_wing = np.convolve(right_wing, weights, 'valid') * 180 / np.pi
+                # print(self.data['wing_left'], self.data['wing_right'])
+                # window = 11
+                # weights = np.arange(window).astype(float)
+                # weights /= weights.sum()
+                # left_wing = np.convolve(left_wing, weights, 'valid') * 180 / np.pi
+                # right_wing = np.convolve(right_wing, weights, 'valid') * 180 / np.pi
+                # left_wing = np.cumsum(left_wing) * 180 / np.pi
+                # right_wing = np.cumsum(right_wing) * 180 / np.pi
                 lmr = -(left_wing + right_wing)  # flip lmr so that the sign matches the direction of turning
                 lpr = 360 - (abs(left_wing) + abs(right_wing))
                 xs = np.linspace(0, self.current_time - self.start_time, len(lmr))
@@ -912,7 +1031,13 @@ class FrameUpdater():
             # otherwise, if data is the supplied data, then update the plots
             # extract the new frame and the headings data
             img = data['img']
-            heading, heading_smooth, com_shift = data['heading'], data['heading_smooth'], data['com_shift']
+            if isinstance(img, cp.ndarray):
+                img = cp.asnumpy(img)
+            # heading, heading_smooth, com_shift = data['heading'].get(), data['heading_smooth'].get(), data['com_shift']
+            # split the above into 3 lines
+            heading = data['heading']
+            heading_smooth = data['heading_smooth']
+            com_shift = data['com_shift']
             wing_left, wing_right = data['wing_left'], data['wing_right']
             # print(f"shift = {com_shift}")
             # update the frame and heading
