@@ -7,9 +7,14 @@ import holocube.stimuli as stim
 import holocube.arduino as ard
 import holocube.tools as tools
 import holocube.camera as cameras
+import holocube.multiplexer as multiplexer
 
 # objects we need in run and exps
 window = windows.Holocube_window()
 scheduler = schedulers.Scheduler()
 arduino = ard.Arduino()
-camera = cameras.Camera(window=window)
+camera = cameras.Camera(window=window, com_correction=False)
+try:
+    multiplexer = multiplexer.Multiplexer()
+except:
+    multiplexer = None

@@ -1246,6 +1246,9 @@ class Camera():
                     self.com_shift = np.round(diffs[-1]).astype(int)
                 else:
                     self.com_shift = np.zeros(2)
+            else:
+                self.com_shift = np.zeros(2)
+                diffs = np.zeros((len(headings), 2))
             # center and wrap the heading
             headings -= np.pi/2
             out_of_bounds = headings < -np.pi
@@ -1810,15 +1813,22 @@ class VirtualObject():
         self.frame_num += 1
 
     def set_motion_parameters(self, motion_gain, start_angle=None):
-        self.motion_gain = motion_gain
-        self.position_gain = motion_gain + 1
-        if start_angle is None:
-            start_angle = self.virtual_angle
-        elif callable(start_angle):
-            start_angle = start_angle()
-        self.start_angle = start_angle
-        self.revolution = 0
-        self.frame_num = 0
+        # check if the motion_gain and start_angle values changed
+        reset = False
+        if 'motion_gain' not in dir(self):
+            reset = True
+        elif self.motion_gain != motion_gain:
+            reset = True
+        if reset:
+            self.motion_gain = motion_gain
+            self.position_gain = motion_gain + 1
+            if start_angle is None:
+                start_angle = self.virtual_angle
+            elif callable(start_angle):
+                start_angle = start_angle()
+            self.start_angle = start_angle
+            self.revolution = 0
+            self.frame_num = 0
 
     def clear_angles(self):
         self.past_angles = []
