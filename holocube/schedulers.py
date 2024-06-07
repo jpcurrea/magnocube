@@ -47,18 +47,18 @@ class Test():
 
         """
         if frame_num == 0:                   # first frame
-            for func, args in self.starts:
-                func(*args)
+            for func, arg_list in self.starts:
+                func(*arg_list)
             return True
         elif frame_num < self.num_frames:    # each frame in the middle
-            for func, args in self.mids:
+            for func, arg_list in self.mids:
                 func(*[arg() if hasattr(arg, '__call__') else
                        take(arg, frame_num, mode='wrap', axis=0) if isinstance(arg, ndarray) else
-                       arg for arg in args])
+                       arg for arg in arg_list])
             return True
         else:
-            for func, args in self.ends:     # final frame
-                func(*args)
+            for func, arg_list in self.ends:     # final frame
+                func(*arg_list)
             return False
 
     def do_frame_old(self, frame_num): #for older versions of numpy indexing

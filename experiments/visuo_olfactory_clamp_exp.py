@@ -59,7 +59,7 @@ num_frames = DURATION * hc.scheduler.freq
 hc.camera.update_heading()
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
 tracker.add_virtual_object(name='bg', motion_gain=0,
-                           start_angle=hc.camera.update_heading, object=True)
+                           start_angle=hc.camera.update_heading, object=False)
 
 # load the images
 # fns = os.listdir("./experiments/natural_images")
@@ -158,7 +158,7 @@ channel_vals[:time_thresh, 0] = True
 channel_vals[time_thresh:, 1] = True
 
 # and lets' keep the motion gain to -1 until 15 seconds
-motion_gains = np.zeros((num_frames, 1))
+motion_gains = np.zeros(num_frames)
 motion_gains[:15 * 120] = -1
 motion_gains[15 * 120:] = 0
 
@@ -174,11 +174,12 @@ for (lbl, bg) in backgrounds.items():
             [hc.window.record_start],
             # [hc.multiplexer.set_channels, [False, True, False, False, False, False, False, False]],
             [hc.multiplexer.all_off],
-            [set_attr_func, tracker, 'start_time', time.time]
+            [set_attr_func, tracker, 'start_time', time.time],
+            [print, f"bg: {lbl}"]
         ]
         middles = [
             [hc.camera.get_background, hc.window.get_frame],
-            [tracker.virtual_objects['bg'].set_motion_parameters, motion_gains, -offset],
+            [tracker.virtual_objects['bg'].set_motion_parameters, motion_gains, offset, False],
             [tracker.update_objects, hc.camera.update_heading],
             [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
             [hc.multiplexer.set_channels, channel_vals],
@@ -203,11 +204,12 @@ starts = [
     [hc.window.record_start],
     # [hc.multiplexer.set_channels, [False, True, False, False, False, False, False, False]],
     [hc.multiplexer.all_off],
-    [set_attr_func, tracker, 'start_time', time.time]
+    [set_attr_func, tracker, 'start_time', time.time],
+    [print, 'uniform']
 ]
 middles = [
     [hc.camera.get_background, hc.window.get_frame],
-    [tracker.virtual_objects['bg'].set_motion_parameters, motion_gains, -offset],
+    [tracker.virtual_objects['bg'].set_motion_parameters, motion_gains, offset, False],
     [tracker.update_objects, hc.camera.update_heading],
     [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
     [hc.multiplexer.set_channels, channel_vals],
@@ -222,7 +224,7 @@ ends = [
         {'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time, 'bg': 'uniform'}, True],
     [hc.window.reset_rot],
 ]
-hc.scheduler.add_test(num_frames, starts, middles, ends)
+# hc.scheduler.add_test(num_frames, starts, middles, ends)
 
 
 # let's add a rest period

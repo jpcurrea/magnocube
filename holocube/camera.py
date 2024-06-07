@@ -1776,6 +1776,8 @@ class TrackingTrial():
         for lbl, object in self.virtual_objects.items():
             object.update_angle(self.heading)
             object.update_position()
+            # test: print the current position
+            print(object.virtual_pos)
 
     def get_object_heading(self, lbl):
         """Get the fly heading and store for later."""
@@ -1811,7 +1813,7 @@ class VirtualObject():
             with camera angles as a viewing vector.
         """
         self.object = object
-        self.set_motion_parameters(yaw_gain, start_angle)
+        self.set_motion_parameters(yaw_gain, start_angle, restart_count=True)
         self.virtual_angle = self.start_angle
         self.yaw, self.pitch, self.roll = 0, 0, 0
         self.virtual_pos = np.array([0, 0, 0], dtype=float)
@@ -1822,20 +1824,42 @@ class VirtualObject():
         self.frame_num = 0
         self.name = name
 
-    def set_motion_parameters(self, yaw_gain, start_angle=None):
-        self.yaw_gain = yaw_gain
-        self.orientation_gain = yaw_gain + 1
-        if start_angle is None or start_angle == np.nan:
-            start_angle = 0
-        # if start_angle is None:
-            # start_angle = self.virtual_angle
-        if callable(start_angle):
-            start_angle = start_angle()
-        if self.object:
-            start_angle = -start_angle
-        self.start_angle = start_angle
-        self.revolution = 0
-        self.frame_num = 0
+    def set_motion_parameters(self, yaw_gain, start_angle=None, restart_count=True):
+        # check if the motion_gain and start_angle values changed
+        update = False
+        if 'orientation_gain' not in dir(self):
+            update = True
+        elif self.orientation_gain != yaw_gain:
+            update = True
+        if update:
+            self.orientation_gain = yaw_gain
+            self.position_gain = yaw_gain + 1
+            if start_angle is None:
+                start_angle = self.virtual_angle
+            elif callable(start_angle):
+                start_angle = start_angle()
+            self.start_angle = start_angle
+            print(f"motion stats:\nposition_gain: {self.position_gain}, orientation_gain: {self.orientation_gain}, start_angle: {self.start_angle}")
+        if restart_count:
+            self.revolution = 0
+            self.frame_num = 0
+
+    # def set_motion_parameters(self, yaw_gain, start_angle=None, restart_count=True):
+    #     if yaw_gain != self.yaw_gain:
+    #         self.yaw_gain = yaw_gain
+    #         self.orientation_gain = yaw_gain + 1
+    #         if start_angle is None or start_angle == np.nan:
+    #             start_angle = 0
+    #         # if start_angle is None:
+    #             # start_angle = self.virtual_angle
+    #         if callable(start_angle):
+    #             start_angle = start_angle()
+    #         if self.object:
+    #             start_angle = -start_angle
+    #         self.start_angle = start_angle
+    #         if restart_count:
+    #             self.revolution = 0
+    #             self.frame_num = 0
 
     def update_position(self, delta=None):
         """Update the position of the virtual object.
@@ -1847,25 +1871,28 @@ class VirtualObject():
         relative_to : float, default=0
             The reference angle to which position change is relative.
         """
-        if delta is None:
-            if 'position_offsets' in dir(self):
-                pos = self.position_offsets[self.frame_num % len(self.position_offsets)]
-            else:
-                pos = np.array([0, 0, 0], dtype=float)
-        else:
-            pos = delta
-        if self.virtual_angle != 0:
-            # rotate the position differential by the current orientation
-            x, y, z = pos
-            pos_2d = np.array([x, z])
-            # test: does it help to subtract pi/2?
-            # new_pos = rotate(pos_2d, -self.virtual_angle-np.pi/2)
-            new_pos = rotate(pos_2d, -self.virtual_angle)
-            # print(self.virtual_angle, pos, new_pos)
-            # don't add to the y position
-            pos = np.array([new_pos[0], y, new_pos[1]], dtype=float).tolist()
-        pos = np.array(pos, dtype=float)
-        self.virtual_pos += pos
+        update_position = False
+        pos = delta
+        if 'position_offsets' in dir(self):
+            pos = self.position_offsets[self.frame_num % len(self.position_offsets)]
+        if pos is not None:
+            if np.all(pos != 0) and not np.any(np.isnan(pos)):
+                update_position = True
+        if update_position:
+            if self.virtual_angle != 0:
+                # rotate the position differential by the current orientation
+                x, y, z = pos
+                pos_2d = np.array([x, z])
+                # test: does it help to subtract pi/2?
+                # new_pos = rotate(pos_2d, -self.virtual_angle-np.pi/2)
+                new_pos = rotate(pos_2d, -self.virtual_angle)
+                if new_pos.ndim == 2:
+                    new_pos = new_pos[:, 0]
+                # print(self.virtual_angle, pos, new_pos)
+                # don't add to the y position
+                pos = np.array([new_pos[0], y, new_pos[1]], dtype=float).tolist()
+            pos = np.array(pos, dtype=float)
+            self.virtual_pos += pos
         self.past_positions += [self.virtual_pos.tolist()]
 
     def reset_position(self):
@@ -1901,8 +1928,13 @@ class VirtualObject():
             mod = 1
             if self.object:
                 mod = -1
-            self.virtual_angle = mod * self.orientation_gain * (
-                    heading_unwrapped - self.start_angle) + self.start_angle
+            try:
+                # self.virtual_angle = mod * self.orientation_gain * (
+                #         heading_unwrapped - self.start_angle) + self.start_angle
+                self.virtual_angle = mod * self.position_gain * (
+                        heading_unwrapped - self.start_angle) + self.start_angle
+            except:
+                breakpoint()
         # self.virtual_angle = mod * self.position_gain * headinge
         # check for any predefined motion
         if 'angle_offsets' in dir(self):
@@ -1922,24 +1954,6 @@ class VirtualObject():
         self.past_angles_wrapped += [heading]
         # update frame counter
         self.frame_num += 1
-
-    def set_motion_parameters(self, motion_gain, start_angle=None):
-        # check if the motion_gain and start_angle values changed
-        reset = False
-        if 'motion_gain' not in dir(self):
-            reset = True
-        elif self.motion_gain != motion_gain:
-            reset = True
-        if reset:
-            self.motion_gain = motion_gain
-            self.position_gain = motion_gain + 1
-            if start_angle is None:
-                start_angle = self.virtual_angle
-            elif callable(start_angle):
-                start_angle = start_angle()
-            self.start_angle = start_angle
-            self.revolution = 0
-            self.frame_num = 0
 
     def clear_angles(self):
         self.past_angles = []
