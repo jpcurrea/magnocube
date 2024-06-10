@@ -1777,7 +1777,7 @@ class TrackingTrial():
             object.update_angle(self.heading)
             object.update_position()
             # test: print the current position
-            print(object.virtual_pos)
+            # print(object.virtual_pos)
 
     def get_object_heading(self, lbl):
         """Get the fly heading and store for later."""
@@ -1839,7 +1839,7 @@ class VirtualObject():
             elif callable(start_angle):
                 start_angle = start_angle()
             self.start_angle = start_angle
-            print(f"motion stats:\nposition_gain: {self.position_gain}, orientation_gain: {self.orientation_gain}, start_angle: {self.start_angle}")
+            print(f"position_gain: {self.position_gain}, orientation_gain: {self.orientation_gain}, start_angle: {self.start_angle}")
         if restart_count:
             self.revolution = 0
             self.frame_num = 0

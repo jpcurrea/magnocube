@@ -198,7 +198,10 @@ class Scheduler():
             # os.chdir(home_dir)
             sys.path.append(os.path.join(os.getcwd(), dir_name[:-1]))
             for path in paths:
-                importlib.import_module(f"{dir_name}.{path}")
+                try:
+                    importlib.import_module(f"{dir_name}.{path}")
+                except:
+                    print(f"Failed to import {path} from {dir_name}")
 
 
     def add_exp(self, name=None, starts=[], ends=[]):

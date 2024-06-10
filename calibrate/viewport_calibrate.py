@@ -4,6 +4,7 @@
 import pyglet
 from pyglet.window import key
 from numpy import *
+import numpy as np
 import holocube.hc as hc
 import os
 
@@ -16,19 +17,19 @@ front_image = hc.stim.Quad_image(hc.window, left=-pi/4, right=pi/4, bottom=-pi/4
 front_image.load_image('./calibrate/front.png')
 left_image = hc.stim.Quad_image(hc.window, left=-pi/4, right=pi/4, bottom=-pi/4, top=pi/4, xdivs=24, ydivs=1, dist=1.5)
 left_image.load_image('./calibrate/left.png')
-left_image.inc_ry(90)
+left_image.inc_ry(np.pi/2)
 right_image = hc.stim.Quad_image(hc.window, left=-pi/4, right=pi/4, bottom=-pi/4, top=pi/4, xdivs=24, ydivs=1, dist=1.5)
 right_image.load_image('./calibrate/right.png')
-right_image.inc_ry(-90)
+right_image.inc_ry(-np.pi/2)
 back_image = hc.stim.Quad_image(hc.window, left=-pi/4, right=pi/4, bottom=-pi/4, top=pi/4, xdivs=24, ydivs=1, dist=1.5)
 back_image.load_image('./calibrate/back.png')
-back_image.inc_ry(180)
+back_image.inc_ry(np.pi)
 bottom_image = hc.stim.Quad_image(hc.window, left=-pi/4, right=pi/4, bottom=-pi/4, top=pi/4, xdivs=24, ydivs=1, dist=1.4)
 bottom_image.load_image('./calibrate/bottom.png')
-bottom_image.inc_rx(-90)
+bottom_image.inc_rx(-np.pi/2)
 top_image = hc.stim.Quad_image(hc.window, left=-pi/4, right=pi/4, bottom=-pi/4, top=pi/4, xdivs=24, ydivs=1, dist=1.5)
 top_image.load_image('./calibrate/top.png')
-top_image.inc_rx(90)
+top_image.inc_rx(np.pi/2)
 
 # shorthand key mods
 sh = key.MOD_SHIFT
@@ -42,8 +43,8 @@ starts =  [[hc.window.set_far,             3],
            [front_image.switch,            True],
            [right_image.switch,            True],
            [left_image.switch,             True],
-           [bottom_image.switch,           True],
-           [top_image.switch,              True],
+           [bottom_image.switch,           False],
+           [top_image.switch,              False],
            [back_image.switch,             True],
            [s.switch,                      True],
            [hc.window.viewport_inc_ind,    0],
