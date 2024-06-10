@@ -18,7 +18,7 @@ tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=DATA_FOLDER)
 # tracker.add_virtual_object(name='bg', motion_gain=0, object=True)
 exp_starts = [[hc.window.set_far, 5],
               [hc.window.set_bg, [0., 0., 0., 1.]],
-              [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1],
+              [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1, 0],
               [hc.camera.clear_headings],
               ]
 exp_ends = [[hc.window.set_far, 1],
@@ -40,6 +40,8 @@ starts = [[pts.switch, True],
 middles = [[hc.camera.import_config],
            [hc.camera.get_background, hc.window.get_frame],
            [tracker.update_objects, hc.camera.update_heading],
+           # [hc.window.set_rot, np.linspace(0, 2 * np.pi, 100)[:, None]],
+        #    [print, tracker.virtual_objects['fly_heading'].get_angle],
            [hc.window.set_rot, tracker.virtual_objects['fly_heading'].get_rot],
         #    [hc.window.set_yaw, tracker.virtual_objects['fly_heading'].get_angle],
           ]

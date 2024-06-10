@@ -1777,7 +1777,7 @@ class TrackingTrial():
             object.update_angle(self.heading)
             object.update_position()
             # test: print the current position
-            print(object.virtual_pos)
+            # print(object.virtual_pos)
 
     def get_object_heading(self, lbl):
         """Get the fly heading and store for later."""
@@ -1831,7 +1831,7 @@ class VirtualObject():
             update = True
         elif self.orientation_gain != yaw_gain:
             update = True
-        if update:
+        if update or restart_count:
             self.orientation_gain = yaw_gain
             self.position_gain = yaw_gain + 1
             if start_angle is None:
@@ -1926,13 +1926,15 @@ class VirtualObject():
             heading_unwrapped = heading + self.revolution * 2 * np.pi
             # calculate the virtual heading
             mod = 1
-            if self.object:
-                mod = -1
+            # if self.object:
+            #     mod = -1
             try:
                 # self.virtual_angle = mod * self.orientation_gain * (
                 #         heading_unwrapped - self.start_angle) + self.start_angle
                 self.virtual_angle = mod * self.position_gain * (
                         heading_unwrapped - self.start_angle) + self.start_angle
+                if np.isnan(self.virtual_angle):
+                    breakpoint()
             except:
                 breakpoint()
         # self.virtual_angle = mod * self.position_gain * headinge

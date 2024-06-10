@@ -13,7 +13,7 @@ DUMMY = False
 WING_ANALYSIS = False
 
 if DUMMY:
-    hc.camera = cameras.Camera(window=hc.window, camera=DUMMY_FN, wing_analysis=WING_ANALYSIS, com_correction=False)
+    hc.camera = cameras.Camera(window=hc.window, camera=DUMMY_FN, wing_analysis=WING_ANALYSIS, com_correction=True)
 # else:
 #     hc.camera = cameras.Camera(window=hc.window, wing_analysis=WING_ANALYSIS, com_correction=False)
 
