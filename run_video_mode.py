@@ -18,7 +18,8 @@ DUMMY = True
 # DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_10_04_16_40_47.mp4'
 # DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4'
 # DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\flow_6_dof\\2024_03_13_11_39_05.mp4'
-DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\thrust_OL_exp\\2024_03_13_12_40_50.mp4'
+# DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\thrust_OL_exp\\2024_03_13_12_40_50.mp4'
+DUMMY_FN = 'test.mp4'
 WING_ANALYSIS = False
 
 if DUMMY:
