@@ -21,7 +21,8 @@ hc.scheduler.add_exp(name=None, starts=exp_starts, ends=exp_ends)
 # hc.scheduler.add_exp()
 
 # test1: add a test to the experiment
-starts = [[pts.switch, True],
+starts = [[hc.window.set_bg, [0., 0., 0., 0.]],
+          [pts.switch, True],
           [bar.switch, True],
           [ hc.window.add_keyhold_action,  'up',                  hc.window.inc_pitch,  .05],
           [ hc.window.add_keyhold_action,  'down',                hc.window.inc_pitch, -.05],
@@ -38,7 +39,8 @@ starts = [[pts.switch, True],
           [ hc.window.add_keypress_action, 'end',                 hc.window.reset_pos_rot],
           [ hc.window.set_yaw, -n.pi/4]
           ] 
-middles = [[hc.window.inc_thrust, -.02]]
+# middles = [[hc.window.inc_thrust, -.02]]
+middles = []
 ends = [[pts.switch, False],
         [bar.switch, False],
         [hc.window.remove_key_actions, ('up', 'down', 'left', 'right', 'end', 'f',
