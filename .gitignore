@@ -1,15 +1,5 @@
-<<<<<<< HEAD
-*/__pycache__/
-*/__pycache__/*
-*.config
-*.mp4
-*/*.mp4
-*.h5
-*/*.h5
-=======
-*/__pycache__/*
 *.pyc
 *.config
 *.mp4
 *.h5
->>>>>>> 938903f2c7e58fe9b7b5678cd982e55ec9d96f27
+
