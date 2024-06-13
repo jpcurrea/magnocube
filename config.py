@@ -10,7 +10,7 @@ randomize = 0
 
 # start the components
 # hc.window.start(config_file='test_viewport.config')
-hc.window.start(config_file='viewport.config')
+hc.window.start(config_file='viewport.config')  
 hc.arduino.start(ardname)
 hc.scheduler.start(hc.window, randomize=randomize, default_rest_time=.1, beep_file=None)
 # hc.scheduler.load_dir('testing')

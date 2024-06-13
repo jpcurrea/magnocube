@@ -149,7 +149,10 @@ class Movable(pyglet.graphics.Group):
         self.pos[:] = pos
 
     def set_rot(self, rot):
-        self.rot[:] = rot
+        if rot.ndim == 1:
+            self.rot[:] = rot
+        elif rot.ndim == 2:
+            self.rot[:] = rot[np.arange(3), np.arange(3)]
 
     def set_px(self, x):
         self.pos[0] = x

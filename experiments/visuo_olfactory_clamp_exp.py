@@ -134,11 +134,11 @@ exp_starts = [[hc.window.set_far, 3],
               [tracker.add_exp_attr, 'video_fn', hc.camera.get_save_fn],
               [tracker.add_exp_attr, 'experiment', os.path.basename(FOLDER)],
               [tracker.add_exp_attr, 'start_exp', time.time],
-              [hc.multiplexer.all_off],
+            #   [hc.multiplexer.all_off],
               ]
 exp_ends = [[hc.window.set_far,     1],
             [hc.window.set_bg, [.5, .5, .5, 1.0]],
-            [hc.multiplexer.all_off],
+            # [hc.multiplexer.all_off],
             [tracker.add_exp_attr, 'stop_exp', time.time],
             [tracker.save],
             [hc.camera.storing_stop],
@@ -161,6 +161,8 @@ channel_vals[time_thresh:, 1] = True
 motion_gains = np.zeros(num_frames)
 motion_gains[:15 * 120] = -1
 motion_gains[15 * 120:] = 0
+
+print(backgrounds)
 
 for (lbl, bg) in backgrounds.items():
     if lbl not in ['bar']:

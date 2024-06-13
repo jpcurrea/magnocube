@@ -202,7 +202,12 @@ class Scheduler():
                     importlib.import_module(f"{dir_name}.{path}")
                 except:
                     print(f"Failed to import {path} from {dir_name}")
-
+                    # # give option to retry import for troubleshooting purposes
+                    # resp = None
+                    # while resp not in ['y', 'n']:
+                    #     resp = input("Retry import? (y/n): ")
+                    # if resp == 'y':
+                    #     importlib.import_module(f"{dir_name}.{path}")
 
     def add_exp(self, name=None, starts=[], ends=[]):
         if name==None:
