@@ -16,7 +16,12 @@ import copy
 from datetime import datetime
 import h5py
 import numpy as np
-import cupy as cp
+cupy_loaded = False
+try:
+    import cupy as cp
+    cupy_loaded = True
+except:
+    cp = np
 import os
 from scipy import spatial
 import timeit
@@ -69,6 +74,7 @@ class FFmpegReaderCupy(io.FFmpegReader):
 
         try:
             # Read framesize bytes
+            breakpoint()
             arr = cp.frombuffer(self._proc.stdout.read(framesize * self.dtype.itemsize), dtype=self.dtype)
             if len(arr) != framesize:
                 return cp.array([])
@@ -598,9 +604,12 @@ class Camera():
             # load the video as a numpy array
             # self.video = io.vread(self.dummy_fn, as_grey=True)
             # self.video = io.FFmpegReader(self.dummy_fn)
-            input_dict = {'-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
             # self.video = io.FFmpegReader(self.dummy_fn, inputdict=input_dict)
-            self.video = FFmpegReaderCupy(self.dummy_fn, inputdict=input_dict)
+            if cupy_loaded:
+                input_dict = {'-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
+                self.video = FFmpegReaderCupy(self.dummy_fn, inputdict=input_dict)
+            else:
+                self.video = io.FFmpegReader(self.dummy_fn)
             self.framerate = float(self.video.inputfps)
             self.save_fn = None
         elif pyspin_loaded:
@@ -886,9 +895,12 @@ class Camera():
     def store_frame(self):
         """Store the next frame."""
         if self.frames_stored < self.frame_num:
-            frame = self.frames.get().reshape(self.height, self.width)
+            frames = self.frames
+            if cupy_loaded:
+                frames = frames.get()
+            frame = frames.reshape(self.height, self.width)
             frame = frame.astype('uint8')
-            self.video_writer.writeFrame(frame.get())
+            self.video_writer.writeFrame(frame)
             self.frames_stored += 1
 
     def storing_stop(self):
@@ -1005,7 +1017,7 @@ class Camera():
                 img = self.get_border()
                 offset = min(self.panels[0].new_height, self.panels[0].new_width)
                 # fix min_width to make the final border dimensions correctly
-                if isinstance(frame_cropped, cp.ndarray):
+                if isinstance(frame_cropped, cp.ndarray) and cupy_loaded:
                     img[offset:offset + self.height, offset:offset + self.height] = frame_cropped[..., None].get()
                 else:
                     img[offset:offset + self.height, offset:offset + self.height] = frame_cropped[..., None]
@@ -1069,6 +1081,8 @@ class Camera():
             if len(self.panels) < 4:
                 # mirror_x = viewport.name in ['front', 'back']
                 mirror_x = False
+                if viewport.scale_factors[0] > 0:
+                    mirror_x = True
                 panel = TiltedPanel(position=viewport.name, mirror_x=mirror_x, aspect_ratio=.25, min_width=self.display_width, img_shape=panel_img.shape)
                 self.panels += [panel]
         # make the border
@@ -1240,7 +1254,9 @@ class Camera():
             if self.kalman:
                 headings_smooth = []
                 # go through each heading value and do the following:
-                for heading in headings_unwrapped.get():
+                if cupy_loaded:
+                    headings_unwrapped = headings_unwrapped.get()
+                for heading in headings_unwrapped:
                     if np.isnan(heading):
                         # use the last prediction as a measurement
                         print("guessing!")
@@ -1397,14 +1413,16 @@ class Camera():
                     # self.display_data['wing_right'] += [[np.pi/2]]
                     # adding pi/2 will make 0 the direction of the head
                     # -pi/2 is the right side and pi/2 is the left side
-                self.display_data['heading'] += [headings_unwrapped.get()]
+                self.display_data['heading'] += [headings_unwrapped]
                 self.display_data['heading_smooth'] += [headings_smooth]
                 # if np.any(abs(headings_unwrapped.get() - headings_smooth) > np.pi/2):
                 #     print(headings_unwrapped.get(), headings_smooth)
                 #     while True:
                 #         pass
                 if self.com_correction:
-                    self.display_data['com_shift'] += [diffs.get()]
+                    if cupy_loaded:
+                        diffs = diffs.get()
+                    self.display_data['com_shift'] += [diffs]
             # now add the frames to the queue for recording data
             # for frame in np.copy(frames):
             for frame in frames:
@@ -1499,9 +1517,7 @@ class TrackingTrial():
         # store a list of virtual objects to track
         self.virtual_objects = {}
         # setup a virtual fly heading object
-        self.add_virtual_object(
-            name='fly_heading', start_angle=self.camera.update_heading,
-            motion_gain=-1, object=False)
+        self.add_virtual_object(name='fly_heading', start_angle=0, motion_gain=-1)
         # make an empty list for test data
         self.tests = []
         self.yaws = []  # the list of yaw arrays per test from holocube
@@ -1756,8 +1772,7 @@ class TrackingTrial():
                 #     print(f"data file successfully stored at {new_fn}")
 
 
-    def add_virtual_object(self, name, motion_gain=-1, start_angle=None,
-                           object=True):
+    def add_virtual_object(self, name, motion_gain=-1, start_angle=None):
         # allow for passing functions as variables
         if callable(start_angle):
             start_angle = start_angle()
@@ -1768,8 +1783,7 @@ class TrackingTrial():
         if start_angle is None:
             start_angle = self.heading
         # make a virtual object instance to keep track of other objects
-        self.virtual_objects[name] = VirtualObject(
-            start_angle, motion_gain, object, name)
+        self.virtual_objects[name] = VirtualObject(start_angle, motion_gain, name)
 
     def update_objects(self, heading):
         self.heading = heading
@@ -1798,7 +1812,7 @@ class TrackingTrial():
         return self.heading
 
 class VirtualObject():
-    def __init__(self, start_angle=0, yaw_gain=-1, object=True, name=None):
+    def __init__(self, start_angle=0, yaw_gain=-1, name=None):
         """Keep track of the angular location of a virtual object.
 
         Parameters
@@ -1807,12 +1821,7 @@ class VirtualObject():
             The original orientation of the object.
         motion_gain : float, default=-1
             The motion gain to apply to the heading transformation.
-        object : bool, default=True
-            Whether this is an external object or a viewing vector.
-            An object orientation should have the inverse relationship
-            with camera angles as a viewing vector.
         """
-        self.object = object
         self.set_motion_parameters(yaw_gain, start_angle, restart_count=True)
         self.virtual_angle = self.start_angle
         self.yaw, self.pitch, self.roll = 0, 0, 0
@@ -1824,7 +1833,7 @@ class VirtualObject():
         self.frame_num = 0
         self.name = name
 
-    def set_motion_parameters(self, yaw_gain, start_angle=None, restart_count=True):
+    def set_motion_parameters(self, yaw_gain, start_angle=0, restart_count=True):
         # check if the motion_gain and start_angle values changed
         update = False
         if 'orientation_gain' not in dir(self):
@@ -1844,23 +1853,6 @@ class VirtualObject():
             self.revolution = 0
             self.frame_num = 0
 
-    # def set_motion_parameters(self, yaw_gain, start_angle=None, restart_count=True):
-    #     if yaw_gain != self.yaw_gain:
-    #         self.yaw_gain = yaw_gain
-    #         self.orientation_gain = yaw_gain + 1
-    #         if start_angle is None or start_angle == np.nan:
-    #             start_angle = 0
-    #         # if start_angle is None:
-    #             # start_angle = self.virtual_angle
-    #         if callable(start_angle):
-    #             start_angle = start_angle()
-    #         if self.object:
-    #             start_angle = -start_angle
-    #         self.start_angle = start_angle
-    #         if restart_count:
-    #             self.revolution = 0
-    #             self.frame_num = 0
-
     def update_position(self, delta=None):
         """Update the position of the virtual object.
         
@@ -1874,7 +1866,12 @@ class VirtualObject():
         update_position = False
         pos = delta
         if 'position_offsets' in dir(self):
-            pos = self.position_offsets[self.frame_num % len(self.position_offsets)]
+            if isinstance(self.position_offsets, (list, np.ndarray)):
+                pos = self.position_offsets[self.frame_num % len(self.position_offsets)]
+            elif callable(self.position_offsets):
+                pos = self.position_offsets()
+            elif isinstance(self.position_offsets, (int, float)):
+                pos = [0, 0, self.position_offsets]
         if pos is not None:
             if np.all(pos != 0) and not np.any(np.isnan(pos)):
                 update_position = True
@@ -1926,8 +1923,6 @@ class VirtualObject():
             heading_unwrapped = heading + self.revolution * 2 * np.pi
             # calculate the virtual heading
             mod = 1
-            # if self.object:
-            #     mod = -1
             try:
                 # self.virtual_angle = mod * self.orientation_gain * (
                 #         heading_unwrapped - self.start_angle) + self.start_angle
@@ -1991,6 +1986,14 @@ class VirtualObject():
 
     def get_position(self):
         return self.virtual_pos
+
+    def get_pos(self):
+        return self.virtual_pos
+
+    def get_pos_rot(self):
+        pos = self.get_pos()
+        rot = self.get_rot()
+        return pos, rot
 
     def get_positions(self):
         ret = self.past_positions
@@ -2069,10 +2072,11 @@ def combine_panels(panels, imgs, output=None):
     # add the projected panel values for each panel to the image
     for panel, img in zip(panels, imgs):
         height, width = panel.new_height, panel.new_width
-        if panel.position in [0, 3]:
-            output[:height, :width] += panel.project_image(img)
-        else:
+        # if panel.position in [0, 3]:
+        if panel.mirror_x:
             output[-height:, -width:] += panel.project_image(img)
+        else:
+            output[:height, :width] += panel.project_image(img)
     # fill the diagonal lines with 0
     output[np.arange(side_length), -np.arange(side_length) - 1] = 0
     output[np.arange(side_length), np.arange(side_length)] = 0

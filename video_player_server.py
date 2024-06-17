@@ -1,7 +1,12 @@
 from functools import partial
 import configparser
-import cupy as cp
 import numpy as np
+cupy_loaded = False
+try:
+    import cupy as cp
+    cupy_loaded = True
+except:
+    cp = np
 import os
 import pickle
 import pyqtgraph as pg
@@ -1031,7 +1036,7 @@ class FrameUpdater():
             # otherwise, if data is the supplied data, then update the plots
             # extract the new frame and the headings data
             img = data['img']
-            if isinstance(img, cp.ndarray):
+            if isinstance(img, cp.ndarray) and cupy_loaded:
                 img = cp.asnumpy(img)
             # heading, heading_smooth, com_shift = data['heading'].get(), data['heading_smooth'].get(), data['com_shift']
             # split the above into 3 lines

@@ -13,7 +13,10 @@ import holocube.multiplexer as multiplexer
 window = windows.Holocube_window()
 scheduler = schedulers.Scheduler()
 arduino = ard.Arduino()
-camera = cameras.Camera(window=window, com_correction=False)
+try:
+    camera = cameras.Camera(window=window, com_correction=False)
+except:
+    camera = None
 try:
     multiplexer = multiplexer.Multiplexer()
 except:
