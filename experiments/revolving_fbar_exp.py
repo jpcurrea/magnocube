@@ -44,9 +44,9 @@ num_frames = DURATION * hc.scheduler.freq
 hc.camera.update_heading()
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
 tracker.add_virtual_object(name='bar', motion_gain=-1,
-                           start_angle=hc.camera.update_heading, object=True)
+                           start_angle=hc.camera.update_heading)
 tracker.add_virtual_object(name='bg', motion_gain=-1,
-                           start_angle=hc.camera.update_heading, object=True)
+                           start_angle=hc.camera.update_heading)
 # experiment: add this experiment to the scheduler
 # save_fn = os.path.join(FOLDER, str(timestamp()))
 # cyl = hc.stim.Quad_image(hc.window, left=-1*pi, right=1*pi, bottom=-.2*pi, top=.2*pi, xres=512,

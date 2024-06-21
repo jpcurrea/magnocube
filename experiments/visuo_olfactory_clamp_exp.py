@@ -59,7 +59,7 @@ num_frames = DURATION * hc.scheduler.freq
 hc.camera.update_heading()
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
 tracker.add_virtual_object(name='bg', motion_gain=0,
-                           start_angle=hc.camera.update_heading, object=False)
+                           start_angle=hc.camera.update_heading)
 
 # load the images
 # fns = os.listdir("./experiments/natural_images")
@@ -121,6 +121,15 @@ grating = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi,
                              dist=1)
 grating.set_image(new_img)
 backgrounds['grating'] = grating
+# now make a uniform gray background that is treated like the others
+new_img[..., :3] = 128
+uniform = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi,
+                             bottom=bottom, top=top, xres=height, yres=width, xdivs=64, ydivs=1,
+                             dist=1)
+uniform.set_image(new_img)
+backgrounds['uniform'] = uniform
+
+
 
 # define test parameters
 exp_starts = [[hc.window.set_far, 3],
@@ -134,15 +143,18 @@ exp_starts = [[hc.window.set_far, 3],
               [tracker.add_exp_attr, 'video_fn', hc.camera.get_save_fn],
               [tracker.add_exp_attr, 'experiment', os.path.basename(FOLDER)],
               [tracker.add_exp_attr, 'start_exp', time.time],
-            #   [hc.multiplexer.all_off],
               ]
 exp_ends = [[hc.window.set_far,     1],
             [hc.window.set_bg, [.5, .5, .5, 1.0]],
-            # [hc.multiplexer.all_off],
             [tracker.add_exp_attr, 'stop_exp', time.time],
             [tracker.save],
             [hc.camera.storing_stop],
             ]
+# add multiplexer functions if it exists
+if hc.multiplexer is not None:
+    exp_starts += [[hc.multiplexer.all_off]]
+    exp_ends += [[hc.multiplexer.all_off]]
+
 hc.scheduler.add_exp(name=os.path.basename(FOLDER), starts=exp_starts, ends=exp_ends)
 
 bar_gain = 0
@@ -174,8 +186,6 @@ for (lbl, bg) in backgrounds.items():
             [hc.camera.import_config],
             [hc.camera.clear_headings],
             [hc.window.record_start],
-            # [hc.multiplexer.set_channels, [False, True, False, False, False, False, False, False]],
-            [hc.multiplexer.all_off],
             [set_attr_func, tracker, 'start_time', time.time],
             [print, f"bg: {lbl}"]
         ]
@@ -184,50 +194,17 @@ for (lbl, bg) in backgrounds.items():
             [tracker.virtual_objects['bg'].set_motion_parameters, motion_gains, offset, False],
             [tracker.update_objects, hc.camera.update_heading],
             [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
-            [hc.multiplexer.set_channels, channel_vals],
             # [bar.set_ry, tracker.virtual_objects['bar'].get_angle],
             [hc.window.record_frame]
         ]
         ends = [
             [bg.switch, False],
-            [hc.multiplexer.set_channels, [True, False, False, False, False, False, False, False]],
             [tracker.reset_virtual_object_motion],
             [tracker.add_test_data, hc.window.record_stop,
                 {'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time, 'bg': lbl}, True],
             [hc.window.reset_rot],
         ]
+        if hc.multiplexer is not None:
+            middles += [[hc.multiplexer.set_channels, channel_vals]]
+            ends += [[hc.multiplexer.set_channels, [True, False, False, False, False, False, False, False]]],
         hc.scheduler.add_test(num_frames, starts, middles, ends)
-
-starts = [
-    [bg.switch, False],
-    [tracker.virtual_objects['bg'].set_motion_parameters, 0, offset],
-    [hc.camera.import_config],
-    [hc.camera.clear_headings],
-    [hc.window.record_start],
-    # [hc.multiplexer.set_channels, [False, True, False, False, False, False, False, False]],
-    [hc.multiplexer.all_off],
-    [set_attr_func, tracker, 'start_time', time.time],
-    [print, 'uniform']
-]
-middles = [
-    [hc.camera.get_background, hc.window.get_frame],
-    [tracker.virtual_objects['bg'].set_motion_parameters, motion_gains, offset, False],
-    [tracker.update_objects, hc.camera.update_heading],
-    [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
-    [hc.multiplexer.set_channels, channel_vals],
-    # [bar.set_ry, tracker.virtual_objects['bar'].get_angle],
-    [hc.window.record_frame]
-]
-ends = [
-    [bg.switch, False],
-    [hc.multiplexer.set_channels, [True, False, False, False, False, False, False, False]],
-    [tracker.reset_virtual_object_motion],
-    [tracker.add_test_data, hc.window.record_stop,
-        {'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time, 'bg': 'uniform'}, True],
-    [hc.window.reset_rot],
-]
-# hc.scheduler.add_test(num_frames, starts, middles, ends)
-
-
-# let's add a rest period
-# dots = 

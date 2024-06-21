@@ -43,9 +43,9 @@ num_frames = DURATION * hc.scheduler.freq
 hc.camera.update_heading()
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
 tracker.add_virtual_object(name='bar', motion_gain=0,
-                           start_angle=hc.camera.update_heading, object=True)
+                           start_angle=hc.camera.update_heading)
 tracker.add_virtual_object(name='bg', motion_gain=-1,
-                           start_angle=hc.camera.update_heading, object=True)
+                           start_angle=hc.camera.update_heading)
 
 # Make the bar and background stimuli
 sequence_length = 2**9

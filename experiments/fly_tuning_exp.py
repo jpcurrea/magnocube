@@ -42,7 +42,7 @@ middles = [[hc.camera.import_config],
            [tracker.update_objects, hc.camera.update_heading],
            # [hc.window.set_rot, np.linspace(0, 2 * np.pi, 100)[:, None]],
         #    [print, tracker.virtual_objects['fly_heading'].get_angle],
-           [hc.window.set_rot, tracker.virtual_objects['fly_heading'].get_rot],
+           [pts.set_rot, tracker.virtual_objects['fly_heading'].get_rot],
         #    [hc.window.set_yaw, tracker.virtual_objects['fly_heading'].get_angle],
           ]
 ends = [[pts.switch, False],

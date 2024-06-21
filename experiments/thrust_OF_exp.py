@@ -41,7 +41,7 @@ orig_near = .1
 orig_far = 3
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
 # tracker.add_virtual_object(name='fly_heading', motion_gain=0, object=False)
-tracker.add_virtual_object(name='heading_subj', motion_gain=-1, object=False, start_angle=0)
+tracker.add_virtual_object(name='heading_subj', motion_gain=-1, start_angle=0)
 # experiment: add this experiment to the scheduler
 exp_starts = [[hc.window.set_far, far], 
               [hc.window.set_near, .1],
