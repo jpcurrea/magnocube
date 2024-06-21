@@ -209,6 +209,18 @@ class TiltedPanel():
             The image to transform as an ndarray. Assumes that the array has
             shape = (self.min_width, self.min_width)
         """
+        # if 'count' not in dir(self):
+        #     self.count = 0
+        # else:
+        #     self.count += 1
+        # if self.count == 100:
+        #     breakpoint()
+        # problem: the original shape does not always match arr.shape
+        # resulting in distorted projections
+        # solution: recalculate the input coords using the shape of arr
+        if arr.shape[:2] != self.img_shape[:2]:
+            self.img_shape = arr.shape[:2]
+            self.get_coords()
         # make a PIL.Image out of the input image
         if not isinstance(arr, Image.Image):
             # todo: this is taking the longest portion of the
@@ -1106,6 +1118,10 @@ class Camera():
         background = img.get_image_data()
         height, width = background.height, background.width
         self.background = np.array(background.get_data(), dtype='uint8').reshape(height, width,4)
+        # test: check if the viewport coordinates match the background image
+        # plt.imshow(self.background)
+        # for viewport in self.window.viewports: left, bottom, width, height = viewport.coords; right, top = left + width, bottom + height; plt.plot([left, right, right, left, left], [bottom, bottom, top, top, bottom], 'r-')
+        # plt.show()
         # plt.imsave(f"{self.frame_num:05d}.png", self.background)
 
     def get_border(self):
@@ -1114,24 +1130,21 @@ class Camera():
         # make a list of all of the images
         imgs = []
         for num, viewport in enumerate(self.window.viewports):
-            # if viewport.name == 'back':
-            #     breakpoint()
             # get the pixels for the viewport
             left, bottom, width, height = viewport.coords[0], viewport.coords[1], viewport.coords[2], viewport.coords[3]
             # print(left, bottom, width, height)
             right, top = left + width, bottom + height
-
             panel_img = img_window[bottom:top, left:right]
             # print(panel_img.shape)
-            # img = Image.fromarray(panel_img)
-            # img.save(f"{self.frame_num:05d}_{num:01d}.png")
+            img = Image.fromarray(panel_img)
+            img.save(f"{self.frame_num:05d}_{num:01d}.png")
             imgs += [panel_img]
             height, width = panel_img.shape[:2]
             # make a TiltedPanel object from this
             if len(self.panels) < 4:
                 # mirror_x = viewport.name in ['front', 'back']
                 mirror_x = viewport.scale_factors[0] > 0
-                panel = TiltedPanel(position=viewport.name, mirror_x=mirror_x, aspect_ratio=.25, min_width=self.display_width, img_shape=panel_img.shape)
+                panel = TiltedPanel(position=viewport.name, mirror_x=mirror_x, aspect_ratio=.25, min_width=self.display_width, img_shape=panel_img.shape[:2])
                 self.panels += [panel]
         # make the border
         return combine_panels(self.panels, imgs)
