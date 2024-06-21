@@ -71,10 +71,8 @@ class FFmpegReaderCupy(io.FFmpegReader):
         # Init and check
         framesize = self.outputdepth * self.outputwidth * self.outputheight
         assert self._proc is not None
-
         try:
             # Read framesize bytes
-            breakpoint()
             arr = cp.frombuffer(self._proc.stdout.read(framesize * self.dtype.itemsize), dtype=self.dtype)
             if len(arr) != framesize:
                 return cp.array([])
@@ -84,6 +82,47 @@ class FFmpegReaderCupy(io.FFmpegReader):
             err1 = str(err)
             raise RuntimeError("%s" % (err1,))
         return arr
+
+# make a child class of skvideo.io.FFmpegWriter to store cupy arrays instead of numpy arrays
+class FFmpegWriterCupy(io.FFmpegWriter):
+    def writeFrame(self, im):
+        """Sends ndarray frames to FFmpeg
+
+        """
+        breakpoint()
+        vid = vshape(im)
+        T, M, N, C = vid.shape
+        if not self.warmStarted:
+            self._warmStart(M, N, C, im.dtype)
+
+        vid = vid.clip(0, (1 << (self.dtype.itemsize << 3)) - 1).astype(self.dtype)
+        vid = self._prepareData(vid)
+        T, M, N, C = vid.shape  # in case of hack ine prepareData to change the image shape (gray2RGB in libAV for exemple)
+
+        # check if we need to do some bit-plane swapping
+        # for the raw data format
+        if self.inputdict["-pix_fmt"].startswith('yuv444p') or self.inputdict["-pix_fmt"].startswith('yuvj444p') or \
+                self.inputdict["-pix_fmt"].startswith('yuva444p'):
+            vid = vid.transpose((0, 3, 1, 2))
+
+        # Check size of image
+        if M != self.inputheight or N != self.inputwidth:
+            raise ValueError('All images in a movie should have same size')
+        if C != self.inputNumChannels:
+            raise ValueError('All images in a movie should have same '
+                             'number of channels')
+
+        assert self._proc is not None  # Check status
+
+        # Write
+        try:
+            self._proc.stdin.write(vid.tostring())
+        except IOError as e:
+            # Show the command and stderr from pipe
+            msg = '{0:}\n\nFFMPEG COMMAND:\n{1:}\n\nFFMPEG STDERR ' \
+                  'OUTPUT:\n'.format(e, self._cmd)
+            raise IOError(msg)
+
 
 # a class to transform a given image given the 4 corners of the destination
 class TiltedPanel():
@@ -877,6 +916,7 @@ class Camera():
                     # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'p7', '-vf':'hue=s=0'}   
                     # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'lossless', '-vf':'hue=s=0'}
                     self.video_writer = io.FFmpegWriter(save_fn, inputdict=input_dict, outputdict=output_dict)
+                    # self.video_writer = FFmpegWriterCupy(save_fn, inputdict=input_dict, outputdict=output_dict)
                 else:
                     self.video_writer = io.FFmpegWriter(save_fn)
                 self.storing_thread = threading.Thread(target=self.store_frames)
@@ -905,10 +945,9 @@ class Camera():
             frames = self.frames.get()
             frame = frames.reshape(self.height, self.width)
             frame = frame.astype('uint8')
-            try:
-                self.video_writer.writeFrame(frame)
-            except:
-                breakpoint()
+            if cupy_loaded:
+                frame = cp.asnumpy(frame)
+            self.video_writer.writeFrame(frame)
             self.frames_stored += 1
 
     def storing_stop(self):
@@ -1845,25 +1884,52 @@ class VirtualObject():
         self.frame_num = 0
         self.name = name
 
-    def set_motion_parameters(self, yaw_gain, start_angle=0, restart_count=True):
+    def set_motion_parameters(self, yaw_gain, start_angle=0, offset=0, restart_count=True):
         # check if the motion_gain and start_angle values changed
-        update = False
         if 'orientation_gain' not in dir(self):
             update = True
-        elif self.orientation_gain != yaw_gain:
             update = True
-        if update or restart_count:
-            self.orientation_gain = yaw_gain
-            self.position_gain = yaw_gain + 1
-            if start_angle is None:
-                start_angle = self.virtual_angle
-            elif callable(start_angle):
-                start_angle = start_angle()
-            self.start_angle = start_angle
-            print(f"position_gain: {self.position_gain}, orientation_gain: {self.orientation_gain}, start_angle: {self.start_angle}")
+        self.orientation_gain = yaw_gain
+        self.position_gain = yaw_gain + 1
+        if start_angle is None:
+            start_angle = self.virtual_angle
+        elif callable(start_angle):
+            start_angle = start_angle()
+        self.start_angle = start_angle
+        self.offset = offset
+        print(f"position_gain: {self.position_gain}, orientation_gain: {self.orientation_gain}, start_angle: {self.start_angle}, offset: {self.offset}")
         if restart_count:
+            # reset revolution count and frame number
             self.revolution = 0
             self.frame_num = 0
+
+    def update_motion_parameters(self, yaw_gain):
+        """Updates the motion parameters maintaining a continuous yaw motion."""
+        update = self.orientation_gain != yaw_gain
+        if update:
+            # to update the gain without shifting the virtual angle,
+            # we need to change the start angle such that the next virtual angle
+            # remains the same
+            # self.virtual_angle = self.position_gain * (
+            #         heading_unwrapped - self.start_angle) + self.start_angle + self.offset
+            # assuming current_angle - new_angle = 0, we can solve for the new start angle
+            # new_start_angle = (self.position_gain)
+            current_angle = self.virtual_angle
+            start_angle = self.start_angle
+            new_pos_gain = yaw_gain + 1
+            if new_pos_gain != 1:
+                new_start_angle = (self.position_gain - new_pos_gain) * current_angle + (1 + self.position_gain) * start_angle
+                new_start_angle /= (1 - new_pos_gain)
+                self.start_angle = new_start_angle
+            else:
+                new_start_angle = 0
+            new_angle = new_pos_gain * (self.heading - new_start_angle) + new_start_angle
+            # update the motion parameters
+            self.offset = current_angle - new_angle
+            new_angle = new_pos_gain * (current_angle - new_start_angle) + new_start_angle + self.offset
+            self.start_angle = new_start_angle
+            self.orientation_gain = yaw_gain
+            self.position_gain = new_pos_gain
 
     def update_position(self, pos=None, subjective=True):
         """Update the position of the virtual object.
@@ -1950,9 +2016,9 @@ class VirtualObject():
             # self.virtual_angle = mod * self.orientation_gain * (
             #         heading_unwrapped - self.start_angle) + self.start_angle
             self.virtual_angle = mod * self.position_gain * (
-                    heading_unwrapped - self.start_angle) + self.start_angle
-            if np.isnan(self.virtual_angle):
-                breakpoint()
+                    heading_unwrapped - self.start_angle) + self.start_angle + self.offset
+            # if np.isnan(self.virtual_angle):
+            #     breakpoint()
         # self.virtual_angle = mod * self.position_gain * headinge
         # check for any predefined motion
         if 'angle_offsets' in dir(self):

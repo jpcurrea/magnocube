@@ -46,7 +46,7 @@ def timestamp():
 
 FOLDER = os.path.abspath("./olfactory_clamp_exp")
 # DURATION = int(5 * 60)    # seconds
-DURATION = int(25)    # seconds
+DURATION = int(5)    # seconds
 # DURATION = 15
 # DURATION = 5   # seconds
 if not os.path.exists(FOLDER):
@@ -96,7 +96,7 @@ new_img = np.zeros((height, width, 4), dtype='uint8')
 new_img[..., -1] = 255
 # get the angle for each pixel
 angles = np.linspace(0, 2 * np.pi, width)
-in_bar = angles < np.pi / 6
+in_bar = (angles < np.pi / 12) + (angles > 2*np.pi - np.pi / 12)
 new_img[:, in_bar, :3] = 0
 # fill with appropriate gray to keep the mean luminance the same as the natural image
 # let's keep the total luminance the same as the natural image
@@ -171,40 +171,41 @@ channel_vals[time_thresh:, 1] = True
 
 # and lets' keep the motion gain to -1 until 15 seconds
 motion_gains = np.zeros(num_frames)
-motion_gains[:15 * 120] = -1
-motion_gains[15 * 120:] = 0
+# motion_gains[:15 * 120] = -1
+# motion_gains[15 * 120:] = 0
+motion_gains[:2 * 120] = -1
+motion_gains[2 * 120:] = 0
 
 print(backgrounds)
 
 for (lbl, bg) in backgrounds.items():
-    if lbl not in ['bar']:
-        # randomly select a phase offset
-        offset = np.random.random() * 2 * np.pi
-        starts = [
-            [bg.switch, True],
-            [tracker.virtual_objects['bg'].set_motion_parameters, 0, offset],
-            [hc.camera.import_config],
-            [hc.camera.clear_headings],
-            [hc.window.record_start],
-            [set_attr_func, tracker, 'start_time', time.time],
-            [print, f"bg: {lbl}"]
-        ]
-        middles = [
-            [hc.camera.get_background, hc.window.get_frame],
-            [tracker.virtual_objects['bg'].set_motion_parameters, motion_gains, offset, False],
-            [tracker.update_objects, hc.camera.update_heading],
-            [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
-            # [bar.set_ry, tracker.virtual_objects['bar'].get_angle],
-            [hc.window.record_frame]
-        ]
-        ends = [
-            [bg.switch, False],
-            [tracker.reset_virtual_object_motion],
-            [tracker.add_test_data, hc.window.record_stop,
-                {'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time, 'bg': lbl}, True],
-            [hc.window.reset_rot],
-        ]
-        if hc.multiplexer is not None:
-            middles += [[hc.multiplexer.set_channels, channel_vals]]
-            ends += [[hc.multiplexer.set_channels, [True, False, False, False, False, False, False, False]]],
-        hc.scheduler.add_test(num_frames, starts, middles, ends)
+    # randomly select a phase offset
+    offset = np.random.random() * 2 * np.pi
+    starts = [
+        [bg.switch, True],
+        [tracker.virtual_objects['bg'].set_motion_parameters, -1, offset],
+        [hc.camera.import_config],
+        [hc.camera.clear_headings],
+        [hc.window.record_start],
+        [set_attr_func, tracker, 'start_time', time.time],
+        [print, f"bg: {lbl}"]
+    ]
+    middles = [
+        [tracker.update_objects, hc.camera.update_heading],
+        [hc.camera.get_background, hc.window.get_frame],
+        [tracker.virtual_objects['bg'].update_motion_parameters, motion_gains],
+        [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
+        # [bar.set_ry, tracker.virtual_objects['bar'].get_angle],
+        [hc.window.record_frame]
+    ]
+    ends = [
+        [bg.switch, False],
+        [tracker.reset_virtual_object_motion],
+        [tracker.add_test_data, hc.window.record_stop,
+            {'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time, 'bg': lbl}, True],
+        [hc.window.reset_rot],
+    ]
+    if hc.multiplexer is not None:
+        middles = [[hc.multiplexer.set_channels, channel_vals]] + middles
+        ends = [[hc.multiplexer.set_channels, np.array([True, False, False, False, False, False, False, False])]] + ends
+    hc.scheduler.add_test(num_frames, starts, middles, ends)

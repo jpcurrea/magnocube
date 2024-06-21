@@ -61,7 +61,10 @@ class Test():
             return True
         else:
             for func, arg_list in self.ends:     # final frame
-                func(*arg_list)
+                try:
+                    func(*arg_list)
+                except:
+                    breakpoint()
             return False
 
     def do_frame_old(self, frame_num): #for older versions of numpy indexing
