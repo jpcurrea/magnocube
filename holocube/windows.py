@@ -111,6 +111,8 @@ class Viewport_class():
         glScalef(*self.scale_factors)
         # point the camera
         view = dot(dot(rot, self.cam_rot_mat), self.forward_up)
+        if view.ndim == 1:
+            breakpoint()
         gluLookAt(pos[0],
                   pos[1],
                   pos[2],
@@ -705,6 +707,7 @@ class Holocube_window(pyglet.window.Window):
         # set the viewport to grab the whole window
         # (trying to grab only one viewport leads to strange behavior---
         #  only the first one is ever imaged, regardless of how which coords are specified)
+        test = glViewport(0,0,self.w, self.h)
         glViewport(0,0,self.w, self.h)
         self.bufm.get_color_buffer().save(f'{prefix}_{self.frame:06d}.png')
         

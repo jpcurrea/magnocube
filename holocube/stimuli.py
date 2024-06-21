@@ -152,6 +152,7 @@ class Movable(pyglet.graphics.Group):
         if rot.ndim == 1:
             self.rot[:] = rot
         elif rot.ndim == 2:
+            breakpoint()
             self.rot[:] = rot[np.arange(3), np.arange(3)]
 
     def set_pos_rot(self, pos_rot):

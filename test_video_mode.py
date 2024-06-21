@@ -28,7 +28,7 @@ if DUMMY:
 home_dir = os.getcwd()
 hc.window.start(config_file='test_viewport.config')
 hc.arduino.start('dummy')
-hc.scheduler.start(hc.window, randomize=False, default_rest_time=.1, freq=30)  
+hc.scheduler.start(hc.window, randomize=False, default_rest_time=.1, freq=30)
 hc.scheduler.load_dir('experiments', suffix=('exp.py', 'rest.py'))
 hc.scheduler.randomize = True
 hc.camera.display_start()

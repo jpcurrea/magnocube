@@ -48,7 +48,10 @@ class Test():
         """
         if frame_num == 0:                   # first frame
             for func, arg_list in self.starts:
-                func(*arg_list)
+                try:
+                    func(*arg_list)
+                except:
+                    breakpoint()
             return True
         elif frame_num < self.num_frames:    # each frame in the middle
             for func, arg_list in self.mids:
@@ -202,12 +205,12 @@ class Scheduler():
                     importlib.import_module(f"{dir_name}.{path}")
                 except:
                     print(f"Failed to import {path} from {dir_name}")
-                    # # give option to retry import for troubleshooting purposes
-                    # resp = None
-                    # while resp not in ['y', 'n']:
-                    #     resp = input("Retry import? (y/n): ")
-                    # if resp == 'y':
-                    #     importlib.import_module(f"{dir_name}.{path}")
+                    # give option to retry import for troubleshooting purposes
+                    resp = None
+                    while resp not in ['y', 'n']:
+                        resp = input("Retry import? (y/n): ")
+                    if resp == 'y':
+                        importlib.import_module(f"{dir_name}.{path}")
 
     def add_exp(self, name=None, starts=[], ends=[]):
         if name==None:

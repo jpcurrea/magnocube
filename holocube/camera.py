@@ -129,15 +129,18 @@ class TiltedPanel():
         self.output_coords = np.array([[-1, 0], [1, 0], [length + 1, length], [-(length + 1), length]], dtype=float)
         self.output_coords *= float(self.min_width) / 2.
         # flip the x values if specified
-        if self.mirror_x:
-            self.output_coords[:, 0] *= -1
+        # if self.mirror_x:
+        #     self.input_coords[:, 0] *= -1
         # rotate the output coords depending on the given position
         self.output_coords -= self.output_coords.mean(0)
         # self.output_coords = np.rot90(self.output_coords, k=self.position)
         if self.position > 0:
             self.output_coords = rotate(self.output_coords, angle=self.position * np.pi/2)
-        if self.position in [0, 2]:
-            self.output_coords[:, 1] *= -1
+        # if positioned in the left or right panel, flip the x values
+        # this can be generalized based on the x scale parameter in viewport.config
+        # if self.position in [1, 3]:
+        if self.mirror_x:
+            self.input_coords = np.array([self.input_coords[1], self.input_coords[0], self.input_coords[3], self.input_coords[2]])
         self.output_coords -= self.output_coords.min(0)
         self.output_coords = self.output_coords.astype(int)
         self.new_width, self.new_height = np.round(self.output_coords.max(0)).astype(int)
@@ -156,7 +159,7 @@ class TiltedPanel():
         B = np.array(pb).reshape(8)
 
         res = np.dot(np.linalg.inv(A.T * A) * A.T, B)
-        self.coeffs = np.array(res).reshape(8)        
+        self.coeffs = np.array(res).reshape(8)
 
     def project_image(self, arr):
         """Use PIL to render the image as if it were a panel orthogonal to the viewer.
@@ -867,11 +870,15 @@ class Camera():
                 save_fn = os.path.join(dirname, save_fn)
             self.save_fn = save_fn
             if capture_online:
-                input_dict = {'-r': str(round(self.framerate)), '-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
-                output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
-                # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'p7', '-vf':'hue=s=0'}   
-                # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'lossless', '-vf':'hue=s=0'}
-                self.video_writer = io.FFmpegWriter(save_fn, inputdict=input_dict, outputdict=output_dict)
+                input_dict = None
+                if cupy_loaded:
+                    input_dict = {'-r': str(round(self.framerate)), '-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
+                    output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'slow', '-vf':'hue=s=0'}
+                    # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'p7', '-vf':'hue=s=0'}   
+                    # output_dict = {'-r': str(round(self.framerate)), '-c:v': 'h264_nvenc', '-preset':'lossless', '-vf':'hue=s=0'}
+                    self.video_writer = io.FFmpegWriter(save_fn, inputdict=input_dict, outputdict=output_dict)
+                else:
+                    self.video_writer = io.FFmpegWriter(save_fn)
                 self.storing_thread = threading.Thread(target=self.store_frames)
                 self.storing_thread.start()
             else:
@@ -895,12 +902,13 @@ class Camera():
     def store_frame(self):
         """Store the next frame."""
         if self.frames_stored < self.frame_num:
-            frames = self.frames
-            if cupy_loaded:
-                frames = frames.get()
+            frames = self.frames.get()
             frame = frames.reshape(self.height, self.width)
             frame = frame.astype('uint8')
-            self.video_writer.writeFrame(frame)
+            try:
+                self.video_writer.writeFrame(frame)
+            except:
+                breakpoint()
             self.frames_stored += 1
 
     def storing_stop(self):
@@ -1067,10 +1075,13 @@ class Camera():
         # make a list of all of the images
         imgs = []
         for num, viewport in enumerate(self.window.viewports):
+            # if viewport.name == 'back':
+            #     breakpoint()
             # get the pixels for the viewport
             left, bottom, width, height = viewport.coords[0], viewport.coords[1], viewport.coords[2], viewport.coords[3]
             # print(left, bottom, width, height)
             right, top = left + width, bottom + height
+
             panel_img = img_window[bottom:top, left:right]
             # print(panel_img.shape)
             # img = Image.fromarray(panel_img)
@@ -1080,9 +1091,7 @@ class Camera():
             # make a TiltedPanel object from this
             if len(self.panels) < 4:
                 # mirror_x = viewport.name in ['front', 'back']
-                mirror_x = False
-                if viewport.scale_factors[0] > 0:
-                    mirror_x = True
+                mirror_x = viewport.scale_factors[0] > 0
                 panel = TiltedPanel(position=viewport.name, mirror_x=mirror_x, aspect_ratio=.25, min_width=self.display_width, img_shape=panel_img.shape)
                 self.panels += [panel]
         # make the border
@@ -1679,15 +1688,17 @@ class TrackingTrial():
                     arr[:] = np.nan
                     if arr.size > 0:
                         for num, test in enumerate(vals):
-                            if isinstance(test, cp.ndarray):
+                            if isinstance(test, cp.ndarray) and cupy_loaded:
                                 test = test.get()
+                            elif isinstance(test, (list, tuple)):
+                                test = np.array(test)
                             arr[num, :len(test)] = test
                 else:
-                    try:
+                    if cupy_loaded:
                         arr = cp.array(vals)
                         arr = arr.get()
-                    except:
-                        breakpoint()
+                    else:
+                        arr = np.array(vals)
                 arr = np.squeeze(arr)
                 # store the values in the h5 dataset
                 self.h5_file.create_dataset(label, data=arr)
@@ -1828,6 +1839,7 @@ class VirtualObject():
         self.virtual_pos = np.array([0, 0, 0], dtype=float)
         self.revolution = 0
         self.past_angles = []
+        self.past_headings = []
         self.past_positions = []
         self.past_angles_wrapped = []
         self.frame_num = 0
@@ -1853,18 +1865,18 @@ class VirtualObject():
             self.revolution = 0
             self.frame_num = 0
 
-    def update_position(self, delta=None):
+    def update_position(self, pos=None, subjective=True):
         """Update the position of the virtual object.
         
         Parameters
         ----------
         pos : array-like, shape (3,)
             The new positions or change in position of the virtual object.
-        relative_to : float, default=0
-            The reference angle to which position change is relative.
+        subjective : bool, default=True
+            Whether to update the position based on the current orientation,
+            regardless of the virtual object's orientation.
         """
         update_position = False
-        pos = delta
         if 'position_offsets' in dir(self):
             if isinstance(self.position_offsets, (list, np.ndarray)):
                 pos = self.position_offsets[self.frame_num % len(self.position_offsets)]
@@ -1873,21 +1885,30 @@ class VirtualObject():
             elif isinstance(self.position_offsets, (int, float)):
                 pos = [0, 0, self.position_offsets]
         if pos is not None:
-            if np.all(pos != 0) and not np.any(np.isnan(pos)):
+            if not np.all(pos == 0) and not np.any(np.isnan(pos)):
                 update_position = True
         if update_position:
-            if self.virtual_angle != 0:
+            if subjective:
+                angle = self.heading - self.virtual_angle
+            else:
+                angle = self.virtual_angle
+            if angle != 0:
                 # rotate the position differential by the current orientation
                 x, y, z = pos
-                pos_2d = np.array([x, z])
-                # test: does it help to subtract pi/2?
-                # new_pos = rotate(pos_2d, -self.virtual_angle-np.pi/2)
-                new_pos = rotate(pos_2d, -self.virtual_angle)
-                if new_pos.ndim == 2:
-                    new_pos = new_pos[:, 0]
-                # print(self.virtual_angle, pos, new_pos)
-                # don't add to the y position
-                pos = np.array([new_pos[0], y, new_pos[1]], dtype=float).tolist()
+                # pos_2d = np.array([x, z])
+                # # test: does it help to subtract pi/2?
+                # # new_pos = rotate(pos_2d, -self.virtual_angle-np.pi/2)
+                # new_pos = rotate(pos_2d, angle)
+                # if new_pos.ndim == 2:
+                #     new_pos = new_pos[:, 0]
+                # # print(self.virtual_angle, pos, new_pos)
+                # # don't add to the y position
+                # pos = np.array([new_pos[0], y, new_pos[1]], dtype=float).tolist()
+                # todo: use simple trig to calculate the new position
+                amp = np.linalg.norm(pos)
+                pos = amp * np.array([np.sin(angle), y, np.cos(angle)])
+                # if len(self.past_positions) == 1000:
+                #     breakpoint()
             pos = np.array(pos, dtype=float)
             self.virtual_pos += pos
         self.past_positions += [self.virtual_pos.tolist()]
@@ -1897,7 +1918,10 @@ class VirtualObject():
 
     def update_angle(self, heading):
         # check if the start angle is nan. if so, replace with the current heading
-        is_nan = heading == np.nan
+        self.heading = copy.copy(heading)
+        self.past_headings += [self.heading]
+        # is_nan = heading == np.nan
+        is_nan = np.isnan(heading)
         is_none = heading is None
         # if np.isnan(self.start_angle) and not (is_nan or is_none):
         #     self.start_angle = heading
@@ -1907,8 +1931,8 @@ class VirtualObject():
             if np.any(past_no_nans):
                 last_non_nan = np.where(past_no_nans)[0][-1]
                 self.virtual_angle = self.past_angles[last_non_nan]
-            else:
-                self.virtual_angle = 0
+            # else:
+            #     self.virtual_angle = self.heading
         else:
             if len(self.past_angles) > 1:
                 last_angle = self.past_angles_wrapped[-1]
@@ -1923,14 +1947,11 @@ class VirtualObject():
             heading_unwrapped = heading + self.revolution * 2 * np.pi
             # calculate the virtual heading
             mod = 1
-            try:
-                # self.virtual_angle = mod * self.orientation_gain * (
-                #         heading_unwrapped - self.start_angle) + self.start_angle
-                self.virtual_angle = mod * self.position_gain * (
-                        heading_unwrapped - self.start_angle) + self.start_angle
-                if np.isnan(self.virtual_angle):
-                    breakpoint()
-            except:
+            # self.virtual_angle = mod * self.orientation_gain * (
+            #         heading_unwrapped - self.start_angle) + self.start_angle
+            self.virtual_angle = mod * self.position_gain * (
+                    heading_unwrapped - self.start_angle) + self.start_angle
+            if np.isnan(self.virtual_angle):
                 breakpoint()
         # self.virtual_angle = mod * self.position_gain * headinge
         # check for any predefined motion
@@ -1963,23 +1984,27 @@ class VirtualObject():
         return self.virtual_angle
 
     def get_rot(self):
-        if 'yaw' in dir(self):
-            # calculate a 3D rotation matrix based on the stored pitch, yaw, and roll
-            # make the 3 rotation matrices
-            sint, cost = np.sin(self.virtual_angle), np.cos(self.virtual_angle)
-            yaw_mat = np.array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
-            sint, cost = np.sin(self.pitch), np.cos(self.pitch)
-            pitch_mat = np.array([[1, 0, 0], [0, cost, -sint], [0, sint, cost]])
-            sint, cost = np.sin(self.roll), np.cos(self.roll)
-            roll_mat = np.array([[cost, -sint, 0], [sint, cost, 0], [0, 0, 1]])
-            # multiply them together
-            # rot = np.dot(np.dot(yaw_mat, pitch_mat), roll_mat)
-            rot = np.dot(np.dot(pitch_mat, roll_mat), yaw_mat)
-            return rot
-        else:
-            sint, cost = np.sin(self.virtual_angle), np.cos(self.virtual_angle)
-            yaw_mat = np.array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
-            return yaw_mat
+        # todo: figure out how to properly incorporate other rotations
+        # if 'yaw' in dir(self):
+        #     # calculate a 3D rotation matrix based on the stored pitch, yaw, and roll
+        #     # make the 3 rotation matrices
+        #     sint, cost = np.sin(self.virtual_angle), np.cos(self.virtual_angle)
+        #     yaw_mat = np.array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+        #     sint, cost = np.sin(self.pitch), np.cos(self.pitch)
+        #     pitch_mat = np.array([[1, 0, 0], [0, cost, -sint], [0, sint, cost]])
+        #     sint, cost = np.sin(self.roll), np.cos(self.roll)
+        #     roll_mat = np.array([[cost, -sint, 0], [sint, cost, 0], [0, 0, 1]])
+        #     # multiply them together
+        #     # rot = np.dot(np.dot(yaw_mat, pitch_mat), roll_mat)
+        #     rot = np.dot(np.dot(pitch_mat, roll_mat), yaw_mat)
+        #     return rot
+        # else:
+        #     sint, cost = np.sin(self.virtual_angle), np.cos(self.virtual_angle)
+        #     yaw_mat = np.array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+        #     return yaw_mat
+        self.yaw = self.virtual_angle
+        rot = np.array([self.pitch, self.yaw, self.roll])    
+        return rot
 
     def get_dir_vector(self):
         return np.array([np.sin(self.virtual_angle), np.cos(self.virtual_angle), 0])
@@ -2064,7 +2089,11 @@ def rotate(arr, angle=np.pi/2):
     return np.dot(arr, rot_matrix)
 
 def combine_panels(panels, imgs, output=None):
-    """Combine 4 TiltedPanel objects into the border of a square image."""
+    """Combine 4 TiltedPanel objects into the border of a square image.
+    
+    note that the position is based on this conversion:
+        pos_conv = np.array(['left', 'front', 'right', 'back'])
+    """
     # make an empty image if it wasn't provided
     if output is None:
         side_length = max([max(panel.new_width, panel.new_height) for panel in panels])
@@ -2072,8 +2101,8 @@ def combine_panels(panels, imgs, output=None):
     # add the projected panel values for each panel to the image
     for panel, img in zip(panels, imgs):
         height, width = panel.new_height, panel.new_width
-        # if panel.position in [0, 3]:
-        if panel.mirror_x:
+        # breakpoint()
+        if panel.position in [0, 1]:
             output[-height:, -width:] += panel.project_image(img)
         else:
             output[:height, :width] += panel.project_image(img)
