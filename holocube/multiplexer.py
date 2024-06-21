@@ -22,6 +22,7 @@ The object here establishes the serial port connection and allows for easy
 conversion to the binary values.
 """
 import serial
+import time
 
 class Multiplexer:
     def __init__(self, port='COM3', baudrate=9600):
@@ -53,5 +54,24 @@ class Multiplexer:
         # print(f"mmux:{self.num}\n")
 
     def close(self):
+        self.all_off()
         self.ser.close()
         print('Multiplexer closed')
+
+if __name__ == "__main__":
+    mux = Multiplexer()
+    mux.all_off()
+    mux.set_channel(0, True)
+    mux.write()
+    time.sleep(2)
+    mux.set_channel(1, True)
+    mux.write()
+    time.sleep(2)
+    mux.all_off()
+    mux.set_channel(2, True)
+    mux.write()
+    time.sleep(2)
+    mux.set_channel(3, True)
+    mux.write()
+    time.sleep(2)
+    mux.close()

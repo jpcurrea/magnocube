@@ -56,11 +56,12 @@ tracker.add_virtual_object(name='bg', motion_gain=-1,
 sequence_length = 2**9
 # xres = 96
 xres = sequence_length
-cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=-.2*pi,
-                         top=.2*pi, xres=xres,
+bottom, top = -np.arctan2(1, 2*np.sqrt(2)), np.arctan2(3, 2*np.sqrt(2))
+cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
+                         top=top, xres=xres,
                          yres=xres, xdivs=64, ydivs=1, dist=2)
-motion_bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, bottom=-.2*pi,
-                                top=.2*pi, xres=xres,  
+motion_bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, bottom=bottom,
+                                top=top, xres=xres,  
                                 yres=xres, xdivs=64, ydivs=1)
 
 

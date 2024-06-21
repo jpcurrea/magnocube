@@ -52,7 +52,7 @@ sequence_length = 2**9
 # xres = 96
 xres = sequence_length
 pad = .25
-bottom, top = - np.arctan2(3, 2*np.sqrt(2)), np.arctan2(1, 2*np.sqrt(2))
+bottom, top = - np.arctan2(1, 2*np.sqrt(2)), np.arctan2(3, 2*np.sqrt(2))
 cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
                          top=top, xres=xres,
                          yres=xres, xdivs=64, ydivs=1, dist=2)

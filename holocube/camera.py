@@ -1136,8 +1136,8 @@ class Camera():
             right, top = left + width, bottom + height
             panel_img = img_window[bottom:top, left:right]
             # print(panel_img.shape)
-            img = Image.fromarray(panel_img)
-            img.save(f"{self.frame_num:05d}_{num:01d}.png")
+            # img = Image.fromarray(panel_img)
+            # img.save(f"{self.frame_num:05d}_{num:01d}.png")
             imgs += [panel_img]
             height, width = panel_img.shape[:2]
             # make a TiltedPanel object from this
