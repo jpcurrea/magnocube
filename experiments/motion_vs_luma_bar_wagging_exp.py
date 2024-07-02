@@ -73,15 +73,15 @@ mseq = hc.tools.mseq(2, order, whichSeq=which_seq)
 mseq = mseq[:width]
 
 arr = np.zeros((height, width, 4), dtype='uint8')
-arr[..., -1] = 255
 # arr[:, 1:][:, mseq == 1, 2] = 255
 arr[:, 1:][:, mseq == 1] = 255
+arr[..., -1] = 255
 # arr[:] = 255
-arr[..., :2] = 0
+# arr[..., :2] = 0
 # arr[:] = 0
 cyl.set_image(np.copy(arr))
 arr[..., :3] = 128
-arr[..., :2] = 0
+# arr[..., :2] = 0
 arr[..., -1] = 255
 cyl_gray.set_image(arr)
 # grab a random 30 degrees of arr as the bar texture
@@ -108,7 +108,8 @@ upper_bound = int(bar_width/2)
 dist = int(round(.25 * xres))
 lower_bound += dist
 upper_bound += dist
-bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
+# bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
+bar_arr[:, lower_bound:upper_bound][:, bar_vals == 1] = 255
 bar_arr[:, lower_bound:upper_bound, 3] = 255                    # alpha
 bar.set_image(bar_arr)
 
@@ -165,7 +166,11 @@ bar_gain = 0
 tracker.start_time = 0
 # first, let's add the experiments with a background
 for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
-    for bg_gain in [-1, 0]:
+    if bg_lbl == 'random':
+        bg_gains = [-1, 0]
+    else:
+        bg_gains = [0]
+    for bg_gain in bg_gains:
         for bar_orientations, eye_side in zip([orientations_right, orientations_left], ['right', 'left']):
             starts = [
                 [bar.switch, True],
@@ -175,7 +180,7 @@ for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
                 [tracker.virtual_objects['bar'].add_motion, bar_orientations],
                 [hc.camera.clear_headings],
                 [hc.window.record_start],
-                [print, f"bg_texture={bg_lbl}\tbar_side={eye_side}"],
+                [print, f"bg texture:{bg_lbl},\tbg gain:{bg_gain},\tbar side:{eye_side}"],
                 [set_attr_func, tracker, 'start_time', time.time]
             ]
             middles = [
@@ -183,6 +188,7 @@ for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
                 [tracker.update_objects, hc.camera.update_heading],
                 # [print, tracker.virtual_objects['bar'].get_angle, hc.camera.get_heading],
                 [bar.set_ry, tracker.virtual_objects['bar'].get_angle],
+                [bg.set_ry, tracker.virtual_objects['bg'].get_angle],
                 # [bar.set_ry, hc.camera.get_heading],
                 [hc.window.record_frame]
             ]
@@ -193,7 +199,8 @@ for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
                 [tracker.add_test_data, hc.window.record_stop,
                  {'bg_texture': bg_lbl, 'side': eye_side, 'bg_gain': bg_gain,
                   'start_test': getattr(tracker, 'start_time'), 'stop_test': time.time,
-                  'bar_position': tracker.virtual_objects['bar'].get_angles}, True],
+                  'bar_angle': tracker.virtual_objects['bar'].get_angles,
+                  'bg_angle': tracker.virtual_objects['bg'].get_angles}, True],
                 [hc.window.reset_rot],
             ]
             hc.scheduler.add_test(num_frames, starts, middles, ends)

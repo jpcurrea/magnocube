@@ -442,7 +442,7 @@ class Points(Movable):
             if self.method == 'hexgrid':
                 # modify the regular grid of coords to be a hex grid
                 self.coords[1] = self.coords[1] + 0.5 * (self.coords[0] % 2)
-        print(f"shape = {self.coords.shape}")
+        # print(f"shape = {self.coords.shape}")
             
 
 

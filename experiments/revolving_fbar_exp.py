@@ -74,9 +74,9 @@ mseq = hc.tools.mseq(2, order, whichSeq=which_seq)
 mseq = mseq[:width]
 
 arr = np.zeros((height, width, 4), dtype='uint8')
+# arr[:, 1:][:, mseq == 1, 2] = 255
+arr[:, 1:][:, mseq == 1] = 255
 arr[..., -1] = 255
-arr[:, 1:][:, mseq == 1, 2] = 255
-# arr[:, 1:][:, mseq == 1] = 255
 # arr[:] = 255
 # arr[..., :2] = 0
 # arr[:] = 0
@@ -104,8 +104,8 @@ upper_bound = int(bar_width/2)
 dist = int(round(.25 * xres))
 lower_bound += dist
 upper_bound += dist
-# bar_arr[:, lower_bound:upper_bound, :3][:, bar_vals == 1] = 255
-bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
+bar_arr[:, lower_bound:upper_bound, :3][:, bar_vals == 1] = 255
+# bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
 bar_arr[:, lower_bound:upper_bound, 3] = 255                                  # alpha
 # plt.imsave('test_img.png', bar_arr)
 motion_bar.set_image(bar_arr)
@@ -174,6 +174,7 @@ for bg_gain in [-1, 0]:
             bar_oris = np.arange(num_frames) * bar_velocity / hc.scheduler.freq
             bar_oris += np.pi
             starts = [[motion_bar.switch, True],
+                    [print, f"bg gain: {bg_gain}, bar gain: {bar_gain}, bar velocity: {bar_velocity/np.pi} pi/s"],
                     [cyl.switch, True],
                     [hc.camera.import_config],
                     [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, hc.camera.update_heading],

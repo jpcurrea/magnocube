@@ -11,7 +11,7 @@ from holocube.camera import TrackingTrial
 
 num_frames = inf
 FOLDER = os.path.abspath("optic_flow_4_kinds_exp")
-NUM_FRAMES = 30*10   # should be about 10 seconds
+NUM_FRAMES = 60*20   # should be about 10 seconds
 SPEED = .1
 FAR = 5
 far = FAR
@@ -61,7 +61,7 @@ tracker.add_virtual_object(name='pts', motion_gain=0,
 exp_starts = [[hc.window.set_far, FAR],
               [hc.window.set_bg, [0.0, 0.0, 0.0, 0.0]],
               [tracker.h5_setup],
-            #   [hc.camera.storing_start, -1, FOLDER, None, True],
+              [hc.camera.storing_start, -1, FOLDER, None, True],
               [tracker.store_camera_settings],
               [hc.camera.clear_headings],
               [pts.switch, True], 
@@ -73,7 +73,7 @@ exp_ends = [[hc.window.set_far,     1],
             [hc.window.set_bg, [.5, .5, .5, 1.0]],
             [tracker.add_exp_attr, 'stop_exp', time.time],
             [tracker.save],
-            # [hc.camera.storing_stop],
+            [hc.camera.storing_stop],
             ]
               
 hc.scheduler.add_exp(name=tracker.dirname, starts=exp_starts, ends=exp_ends)
