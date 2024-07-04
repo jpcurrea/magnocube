@@ -73,6 +73,7 @@ exp_ends = [[hc.window.set_far,     1],
             [hc.window.set_bg, [.5, .5, .5, 1.0]],
             [tracker.add_exp_attr, 'stop_exp', time.time],
             [tracker.save],
+            [pts.switch, False],
             [hc.camera.storing_stop],
             ]
               
@@ -82,7 +83,8 @@ starts, middles, ends = [], [], []
 
 for rot_gain in [0, -1]:
     for trans_speed in [0, SPEED]:
-        starts =[[pts.switch, True],
+        starts =[
+                # [pts.switch, True],
                 [tracker.virtual_objects['pts'].set_motion_parameters, rot_gain, hc.camera.update_heading],
                 [tracker.virtual_objects['pts'].add_motion, None, trans_speed],
                 # add the point field
@@ -94,7 +96,8 @@ for rot_gain in [0, -1]:
                 #    [cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot],
                 ]
 
-        ends = [[pts.switch, False],
+        ends = [
+                # [pts.switch, False],
                 [pts.reset_pos_rot],
                 [tracker.reset_virtual_object_motion],
                 [tracker.add_test_data, hc.window.record_stop,
@@ -104,4 +107,31 @@ for rot_gain in [0, -1]:
                 ]
         hc.scheduler.add_test(NUM_FRAMES, starts, middles, ends)
 
+num_frames = 5 * hc.scheduler.freq
+# pts = hc.stim.Points(hc.window, 1000, dims=[(-5, 5), (-5, 5), (-5, 5)], color=1, pt_size=4)
+headings = np.linspace(0, 720 * np.pi / 180., 480)
+headings = np.append(headings, headings[::-1])
+
+starts = [
+        #   [pts.switch, True],
+          [hc.camera.reset_display_headings],
+          [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1, hc.camera.update_heading],
+          [tracker.virtual_objects['fly_heading'].add_motion, headings, SPEED/5]
+         ]
+middles = [[hc.camera.import_config],
+           [hc.camera.get_background, hc.window.get_frame],
+           [tracker.update_objects, hc.camera.update_heading],
+           # [hc.window.set_rot, np.linspace(0, 2 * np.pi, 100)[:, None]],
+        #    [print, tracker.virtual_objects['fly_heading'].get_angle],
+           [pts.set_rot, tracker.virtual_objects['fly_heading'].get_rot],
+        #    [hc.window.set_yaw, tracker.virtual_objects['fly_heading'].get_angle],
+          ]
+ends = [[tracker.add_test_data, hc.window.record_stop,
+            {'rot_gain': rot_gain, 'thrust_speed': trans_speed, 'stop_test': time.time,
+             'pts_position': tracker.virtual_objects['pts'].get_positions}, False],
+        [tracker.reset_virtual_object_motion],
+        [pts.reset_pos_rot],
+        [hc.camera.clear_headings],
+        [hc.camera.reset_display_headings]]
+hc.scheduler.add_rest(num_frames, starts, middles, ends)
 
