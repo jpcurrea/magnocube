@@ -1967,27 +1967,23 @@ class VirtualObject():
             if not np.all(pos == 0) and not np.any(np.isnan(pos)):
                 update_position = True
         if update_position:
-            if subjective:
-                angle = self.heading - self.virtual_angle
+            # if the translation is relative to the fly's current heading,
+            # then rotate the position differential by the current orientation
+            angle = self.heading
+            if self.relative_translation:
+                angle = np.copy(self.heading)
             else:
-                angle = self.virtual_angle
+                angle = np.copy(self.start_angle)
+                subjective = True
+            # if using subjective translation, which we usually will use, this 
+            # flips the angle and makes it relative to the fly's current heading
+            if subjective:
+                angle -= self.virtual_angle
             if angle != 0:
                 # rotate the position differential by the current orientation
                 x, y, z = pos
-                # pos_2d = np.array([x, z])
-                # # test: does it help to subtract pi/2?
-                # # new_pos = rotate(pos_2d, -self.virtual_angle-np.pi/2)
-                # new_pos = rotate(pos_2d, angle)
-                # if new_pos.ndim == 2:
-                #     new_pos = new_pos[:, 0]
-                # # print(self.virtual_angle, pos, new_pos)
-                # # don't add to the y position
-                # pos = np.array([new_pos[0], y, new_pos[1]], dtype=float).tolist()
-                # todo: use simple trig to calculate the new position
                 amp = np.linalg.norm(pos)
                 pos = amp * np.array([np.sin(angle), y, np.cos(angle)])
-                # if len(self.past_positions) == 1000:
-                #     breakpoint()
             pos = np.array(pos, dtype=float)
             self.virtual_pos += pos
         self.past_positions += [self.virtual_pos.tolist()]
