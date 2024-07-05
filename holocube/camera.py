@@ -2126,7 +2126,7 @@ class VirtualObject():
             real_angle = (virtual_angles - self.start_angle) / self.orientation_gain + self.start_angle
         return real_angle
 
-    def add_motion(self, angle_offsets=None, position_offsets=None):
+    def add_motion(self, angle_offsets=None, position_offsets=None, relative_translation=True):
         """Add motion to the virtual object.
 
         Parameters
@@ -2139,12 +2139,16 @@ class VirtualObject():
             The value(s) to add to the virtual position. Option to provide
             a series of position offsets. If only one is provided, it will be
             repeated for each frame.
+        relative_translation : bool, default=True
+            Whether to update the position based on the virtual angle or simply based
+            on the starting orientation.
         """
         self.clear_motion()
         if angle_offsets is not None:
             self.angle_offsets = angle_offsets
         if position_offsets is not None:
             self.position_offsets = position_offsets 
+        self.relative_translation = relative_translation
 
     def clear_motion(self):
         for var in ['angle_offsets', 'position_offsets']:
