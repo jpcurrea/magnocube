@@ -105,3 +105,25 @@ for rot_gain in [0, -1]:
         hc.scheduler.add_test(NUM_FRAMES, starts, middles, ends)
 
 
+starts =[[pts.switch, True],
+        [tracker.virtual_objects['pts'].set_motion_parameters, -1, hc.camera.update_heading],
+        [tracker.virtual_objects['pts'].add_motion, None, trans_speed],
+        # add the point field
+        [print, f"rotation: {rot_gain}, translation speed: {trans_speed}"]
+        ]
+middles=[[hc.camera.get_background, hc.window.get_frame],
+        [tracker.update_objects, hc.camera.update_heading],
+        [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
+        #    [cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot],
+        ]
+
+ends = [[pts.switch, False],
+        [pts.reset_pos_rot],
+        [tracker.reset_virtual_object_motion],
+        [tracker.add_test_data, hc.window.record_stop,
+                {'rot_gain': rot_gain, 'thrust_speed': trans_speed, 'stop_test': time.time,
+                'pts_position': tracker.virtual_objects['pts'].get_positions}, True],
+        [hc.camera.clear_headings],
+        ]
+hc.scheduler.add_test(NUM_FRAMES, starts, middles, ends)
+
