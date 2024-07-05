@@ -32,7 +32,8 @@ size = (num_dots / (2 * far * dot_density)) ** (1/2)
 pts = hc.stim.Points(hc.window, num_dots, dims=[(-size/2, size/2),(-far, far),(-size/2, size/2)], color=1, pt_size=5, method='random')
 # bar = hc.stim.Bars(hc.window)
 
-FOLDER = os.path.abspath("thrust_OL_exp")
+NAME = 'translation_along_azimuth'
+FOLDER = os.path.abspath(NAME)
 if not os.path.exists(FOLDER):
    os.mkdir(FOLDER)
 
@@ -71,7 +72,7 @@ exp_ends = [[pts.switch, False],
             [hc.window.set_bg, orig_bg],
             [hc.camera.clear_headings]
             ]
-hc.scheduler.add_exp(name='flow_6_dof', starts=exp_starts, ends=exp_ends)
+hc.scheduler.add_exp(name=NAME, starts=exp_starts, ends=exp_ends)
 
 velocity = np.linspace(0, 1, num_frames//2)
 velocity = np.concatenate([velocity, velocity[::-1]])

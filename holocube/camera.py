@@ -1910,7 +1910,7 @@ class VirtualObject():
             start_angle = start_angle()
         self.start_angle = start_angle
         self.offset = offset
-        print(f"position_gain: {self.position_gain}, orientation_gain: {self.orientation_gain}, start_angle: {self.start_angle}, offset: {self.offset}")
+        # print(f"position_gain: {self.position_gain}, orientation_gain: {self.orientation_gain}, start_angle: {self.start_angle}, offset: {self.offset}")
         if restart_count:
             # reset revolution count and frame number
             self.revolution = 0
