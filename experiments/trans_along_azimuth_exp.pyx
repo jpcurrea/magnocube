@@ -10,9 +10,10 @@ import os
 from holocube.camera import TrackingTrial
 
 num_frames = inf
-FOLDER = os.path.abspath("optic_flow_4_kinds_exp")
+NAME = "translation_along_azimuth"
+FOLDER = os.path.abspath(NAME)
 NUM_FRAMES = 60*20   # should be about 10 seconds
-NUM_FRAMES /= 5
+NUM_FRAMES = int(round(NUM_FRAMES / 5))
 SPEED = .1
 FAR = 5
 far = FAR
@@ -34,11 +35,11 @@ size = (num_dots / (2 * far * dot_density)) ** (1/2)
 pts = hc.stim.Points(hc.window, num_dots, dims=[(-size/2, size/2),(-far/2, far/2),(-size/2, size/2)], color=1, pt_size=5, method='random')
 # make a TrackingTrial object to keep track of the virtual position of the points field
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, 
-                        dirname='optic_flow_4_kinds_exp')
+                        dirname=FOLDER)
 tracker.add_virtual_object(name='pts', motion_gain=0,
                            start_angle=hc.camera.update_heading)
 
-# # make an image with a single 5 pixel crosshair
+# make an image with a single 5 pixel crosshair
 xres = 256
 arr = np.zeros((xres, xres, 4), dtype='uint8')
 # thin vertical line
@@ -47,7 +48,7 @@ arr[:, -3:] = 255
 # short horizontal line
 arr[:1, 125:131, :] = 255
 arr[-1:, 125:131, :] = 255
-# # get the needed bottom and top values for the image
+# get the needed bottom and top values for the image
 bottom, top = -np.arctan2(1, 2*np.sqrt(2)), np.arctan2(3, 2*np.sqrt(2))
 cross_hair_image = hc.stim.Quad_image(
     hc.window, left=0, right=2*np.pi, bottom=bottom, top=top, xres=xres, yres=xres, 
@@ -74,23 +75,32 @@ exp_ends = [[hc.window.set_far,     1],
             [tracker.add_exp_attr, 'stop_exp', time.time],
             [tracker.save],
             [cross_hair_image.switch, False],
+            [hc.camera.clear_headings],
             [pts.switch, False],
             [hc.camera.storing_stop],
             ]
               
-hc.scheduler.add_exp(name=tracker.dirname, starts=exp_starts, ends=exp_ends)
+hc.scheduler.add_exp(name=NAME, starts=exp_starts, ends=exp_ends)
 
 starts, middles, ends = [], [], []
+offset_angles = np.linspace(0, 2*np.pi, 12, endpoint=False)
+num_frames = NUM_FRAMES
 
 for rot_gain in [0, -1]:
-    for trans_speed in [0, SPEED]:
+    for offset in offset_angles:
+        # rotate the position delta by the starting angle
+        sint, cost = np.sin(offset), np.cos(offset)
+        yaw_mat = np.array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
+        position_delta = np.zeros((num_frames, 3))
+        position_delta[:, 2] = SPEED
+        position_delta = np.dot(position_delta, yaw_mat)
         starts =[
                 # [pts.switch, True],
                 [tracker.virtual_objects['pts'].set_motion_parameters, rot_gain, hc.camera.update_heading],
-                [tracker.virtual_objects['crosshair'].set_motion_parameters, 0, hc.camera.update_heading],
-                [tracker.virtual_objects['pts'].add_motion, None, trans_speed],
+                # [tracker.virtual_objects['crosshair'].set_motion_parameters, 0, hc.camera.update_heading],
+                [tracker.virtual_objects['pts'].add_motion, None, position_delta],
                 # add the point field
-                [print, f"rotation: {rot_gain}, translation speed: {trans_speed}, relative: True"]
+                [print, f"rotation: {rot_gain}, translation angle: {offset/np.pi:.2f} pi"]
                 ]
         middles=[[hc.camera.get_background, hc.window.get_frame],
                 [tracker.update_objects, hc.camera.update_heading],
@@ -103,70 +113,39 @@ for rot_gain in [0, -1]:
                 [pts.reset_pos_rot],
                 [tracker.reset_virtual_object_motion],
                 [tracker.add_test_data, hc.window.record_stop,
-                 {'rot_gain': rot_gain, 'thrust_speed': trans_speed, 'stop_test': time.time,
-                  'pts_position': tracker.virtual_objects['pts'].get_positions, 
-                  'relative_translation': True}, True],
+                 {'rot_gain': rot_gain, 'thrust_speed': SPEED, 'stop_test': time.time,
+                  'offset_angle': offset, 'pts_position': tracker.virtual_objects['pts'].get_positions}, True],
                 [hc.camera.clear_headings],
+                [hc.camera.reset_display_headings]
                 ]
         hc.scheduler.add_test(NUM_FRAMES, starts, middles, ends)
-
-# add one test where the point of expansion starts at the fly's initial heading
-# using the relative_translation parameter of add_motion
-starts =[
-        # [pts.switch, True],
-        [tracker.virtual_objects['crosshair'].set_motion_parameters, 0, hc.camera.update_heading],
-        [tracker.virtual_objects['pts'].set_motion_parameters, -1, hc.camera.update_heading],
-        [tracker.virtual_objects['pts'].add_motion, None, SPEED, False],
-        # add the point field
-        [print, f"rotation: {rot_gain}, translation speed: {SPEED}, relative: False"]
-        ]
-middles=[[hc.camera.get_background, hc.window.get_frame],
-        [tracker.update_objects, hc.camera.update_heading],
-        # [tracker.update_objects, 0],
-        [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
-        [cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot],
-        ]
-
-ends = [
-        # [pts.switch, False],
-        [pts.reset_pos_rot],
-        [tracker.reset_virtual_object_motion],
-        [tracker.add_test_data, hc.window.record_stop,
-                {'rot_gain': rot_gain, 'thrust_speed': trans_speed, 'stop_test': time.time,
-                'pts_position': tracker.virtual_objects['pts'].get_positions,
-                'relative_translation': True}, True],
-        [hc.camera.clear_headings],
-        ]
-hc.scheduler.add_test(NUM_FRAMES, starts, middles, ends)
-
 
 # num_frames = 5 * hc.scheduler.freq
 num_frames = NUM_FRAMES
 # pts = hc.stim.Points(hc.window, 1000, dims=[(-5, 5), (-5, 5), (-5, 5)], color=1, pt_size=4)
 headings = np.linspace(0, 720 * np.pi / 180., 480)
 headings = np.append(headings, headings[::-1])
-
+speed = SPEED / 4
 starts = [
         #   [pts.switch, True],
           [hc.camera.reset_display_headings],
-          [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1, hc.camera.update_heading],
+          [tracker.virtual_objects['pts'].set_motion_parameters, -1, hc.camera.update_heading],
+          [tracker.virtual_objects['pts'].add_motion, headings, speed],
           [tracker.virtual_objects['crosshair'].set_motion_parameters, 0, hc.camera.update_heading],
-          [tracker.virtual_objects['fly_heading'].add_motion, headings, SPEED/5]
          ]
 middles = [[hc.camera.import_config],
            [hc.camera.get_background, hc.window.get_frame],
            [tracker.update_objects, hc.camera.update_heading],
-           [pts.set_rot, tracker.virtual_objects['fly_heading'].get_rot],
+           [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
            [cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot],
           ]
 ends = [[tracker.add_test_data, hc.window.record_stop,
-            {'rot_gain': rot_gain, 'thrust_speed': trans_speed, 'stop_test': time.time,
-             'pts_position': tracker.virtual_objects['pts'].get_positions,
-             'relative_translation': False}, False],
+            {'rot_gain': rot_gain, 'thrust_speed': speed, 'stop_test': time.time,
+             'offset_angle': 0, 'pts_position': tracker.virtual_objects['pts'].get_positions}, False],
         [tracker.reset_virtual_object_motion],
         [pts.reset_pos_rot],
         [hc.camera.clear_headings],
         [hc.camera.reset_display_headings]]
-# hc.scheduler.add_rest(num_frames, starts, middles, ends)
+hc.scheduler.add_rest(num_frames, starts, middles, ends)
 
 

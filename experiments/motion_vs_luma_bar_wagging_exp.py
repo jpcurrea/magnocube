@@ -53,15 +53,15 @@ sequence_length = 2**9
 xres = sequence_length
 pad = .25
 bottom, top = - np.arctan2(1, 2*np.sqrt(2)), np.arctan2(3, 2*np.sqrt(2))
-cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
-                         top=top, xres=xres,
-                         yres=xres, xdivs=64, ydivs=1, dist=2)
-cyl_gray = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
-                              top=top, xres=xres,
-                              yres=xres, xdivs=64, ydivs=1, dist=2)
 bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, 
                          bottom=bottom, top=top, xres=xres, yres=xres, xdivs=64, ydivs=1,
                          dist=1)
+cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
+                         top=top, xres=xres,
+                         yres=xres, xdivs=64, ydivs=1, dist=3)
+cyl_gray = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
+                              top=top, xres=xres,
+                              yres=xres, xdivs=64, ydivs=1, dist=3)
 
 
 # make a random period gratingx
@@ -73,8 +73,8 @@ mseq = hc.tools.mseq(2, order, whichSeq=which_seq)
 mseq = mseq[:width]
 
 arr = np.zeros((height, width, 4), dtype='uint8')
-# arr[:, 1:][:, mseq == 1, 2] = 255
 arr[:, 1:][:, mseq == 1] = 255
+# arr[:, 1][:, mseq == 1] = 255
 arr[..., -1] = 255
 # arr[:] = 255
 # arr[..., :2] = 0
@@ -110,6 +110,7 @@ lower_bound += dist
 upper_bound += dist
 # bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
 bar_arr[:, lower_bound:upper_bound][:, bar_vals == 1] = 255
+bar_arr[..., 3] = 0
 bar_arr[:, lower_bound:upper_bound, 3] = 255                    # alpha
 bar.set_image(bar_arr)
 
@@ -139,7 +140,7 @@ orientations_left = orientations - np.pi
 orientations_right = - orientations
 
 # define test parameters
-exp_starts = [[hc.window.set_far, 3],
+exp_starts = [[hc.window.set_far, 5],
               [hc.window.set_bg, [0., 0., 0., 0.]],
               [tracker.h5_setup],
               [hc.camera.storing_start, -1, FOLDER, None, True],
@@ -173,8 +174,8 @@ for bg, bg_lbl in zip([cyl, cyl_gray], ['random', 'gray']):
     for bg_gain in bg_gains:
         for bar_orientations, eye_side in zip([orientations_right, orientations_left], ['right', 'left']):
             starts = [
-                [bar.switch, True],
                 [bg.switch, True],
+                [bar.switch, True],
                 [hc.camera.import_config],
                 [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, hc.camera.update_heading],
                 [tracker.virtual_objects['bar'].add_motion, bar_orientations],
