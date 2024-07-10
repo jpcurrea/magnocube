@@ -827,6 +827,11 @@ class Camera():
         while self.capturing:
             # retrieve the next frame
             if self.dummy:
+                for i in range(3):
+                    try:
+                        frame = self.video.__next__()
+                    except:
+                        pass
                 try:
                     frame = self.video.__next__()
                 except:
@@ -836,7 +841,8 @@ class Camera():
                     self.video = io.FFmpegReader(self.dummy_fn)
                     self.vid_frame_num = 0
                     frame = self.video.__next__()
-                time.sleep(1.0/self.framerate)
+                # time.sleep(1.0/self.framerate)
+                time.sleep(1.0/30.0)
             else:
                 # self.frame = self.camera.GetNextImage(timeout).GetData().reshape((self.height, self.width))
                 # instead, grab the raw data and convert into 
@@ -1970,6 +1976,7 @@ class VirtualObject():
             # if the translation is relative to the fly's current heading,
             # then rotate the position differential by the current orientation
             angle = self.heading
+            # breakpoint()
             if self.relative_translation:
                 angle = np.copy(self.heading)
             else:
@@ -2143,7 +2150,7 @@ class VirtualObject():
         if angle_offsets is not None:
             self.angle_offsets = angle_offsets
         if position_offsets is not None:
-            self.position_offsets = position_offsets 
+            self.position_offsets = position_offsets
         self.relative_translation = relative_translation
 
     def clear_motion(self):
