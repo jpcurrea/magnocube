@@ -652,20 +652,7 @@ class Camera():
         self.playing = False
         self.dummy = False
         if isinstance(self.camera, str):
-            self.dummy_fn = copy.copy(self.camera)
-            self.dummy = True
-            self.camera = None
-            # load the video as a numpy array
-            # self.video = io.vread(self.dummy_fn, as_grey=True)
-            # self.video = io.FFmpegReader(self.dummy_fn)
-            # self.video = io.FFmpegReader(self.dummy_fn, inputdict=input_dict)
-            if cupy_loaded:
-                input_dict = {'-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
-                self.video = FFmpegReaderCupy(self.dummy_fn, inputdict=input_dict)
-            else:
-                self.video = io.FFmpegReader(self.dummy_fn)
-            self.framerate = float(self.video.inputfps)
-            self.save_fn = None
+            self.dummy_setup()
         elif pyspin_loaded:
             if isinstance(self.camera, PySpin.PySpin.CameraPtr):
                 self.camera.Init()
@@ -712,6 +699,23 @@ class Camera():
         self.invert_rotations = invert_rotations
         self.gain = 1
         self.offset = 0
+
+    def dummy_setup(self):
+        self.dummy_fn = copy.copy(self.camera)
+        self.dummy = True
+        self.camera = None
+        # load the video as a numpy array
+        # self.video = io.vread(self.dummy_fn, as_grey=True)
+        # self.video = io.FFmpegReader(self.dummy_fn)
+        # self.video = io.FFmpegReader(self.dummy_fn, inputdict=input_dict)
+        if cupy_loaded:
+            input_dict = {'-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
+            self.video = FFmpegReaderCupy(self.dummy_fn, inputdict=input_dict)
+        else:
+            self.video = io.FFmpegReader(self.dummy_fn)
+        self.framerate = float(self.video.inputfps)
+        self.save_fn = None
+
 
     def kalman_setup(self):
         self.kalman_filter = KalmanAngle(jerk_std=self.kalman_jerk_std, measurement_noise_x=self.kalman_noise)
@@ -827,26 +831,26 @@ class Camera():
         while self.capturing:
             # retrieve the next frame
             if self.dummy:
-                for i in range(3):
-                    try:
-                        frame = self.video.__next__()
-                    except:
-                        pass
+                # for i in range(3):
+                #     try:
+                #         frame = self.video.__next__()
+                #     except:
+                #         pass
                 try:
                     frame = self.video.__next__()
                 except:
                     self.clear_headings()
                     self.reset_display()
                     self.reset_data()
-                    self.video = io.FFmpegReader(self.dummy_fn)
+                    self.dummy_setup()
                     self.vid_frame_num = 0
                     frame = self.video.__next__()
-                # time.sleep(1.0/self.framerate)
-                time.sleep(1.0/30.0)
+                time.sleep(1.0/self.framerate)
+                # time.sleep(1.0/30.0)
             else:
                 # self.frame = self.camera.GetNextImage(timeout).GetData().reshape((self.height, self.width))
                 # instead, grab the raw data and convert into 
-                frame = self.camera.GetNextImage(timeout).GetNDArray()
+                frame = self.camera.GetNextImage(200).GetNDArray()
             # convert to cupy array if not
             if not isinstance(frame, cp.ndarray):
                 frame = cp.array(frame)
@@ -859,9 +863,8 @@ class Camera():
             self.buffer_stop += 1
             self.buffer_stop %= len(self.buffer)
             # for dummy videos, call update_heading normally if the video isn't being stored
-            if self.dummy:
-                if not self.storing and self.vid_frame_num % frame_ratio == 0:
-                    self.update_heading()
+            if self.dummy and not self.storing and self.vid_frame_num % frame_ratio == 0:
+                self.update_heading()
 
     def capture_start(self, buffer_size=100):
         """Begin capturing, processing, and storing frames in a Thread.
@@ -916,6 +919,7 @@ class Camera():
         self.frames_stored = 0
         self.headings = []
         self.headings_smooth = []
+        self.headings_unwrapped = []
         self.heading_smooth = self.heading
         self.storing = True
         # import the gui-set configuration before storing frames
@@ -955,7 +959,7 @@ class Camera():
         print("start storing frames")
         while self.storing:
             self.store_frame()
-            time.sleep(.002)
+            time.sleep(.0001)
 
     def store_frame(self):
         """Store the next frame."""
@@ -1337,6 +1341,7 @@ class Camera():
                     headings_smooth += [prediction]
                 # once they're all processed, check for saccades:
                 headings_smooth = np.array(headings_smooth)
+                self.headings_smooth = np.append(self.headings_smooth, headings_smooth[-1:])
                 # if the record is long enough, check if acceleration is above a threshold
                 # if len(self.kalman_filter.record) > 10:
                 #     # calculate the acceleration in real units
@@ -1581,6 +1586,22 @@ class TrackingTrial():
         # make a filename for storing the dataset later
         if not os.path.isdir(self.dirname):
             os.mkdir(self.dirname)
+        # and reset all of the trial data
+        self.reset_trial_data()
+
+    def h5_setup(self, save_fn=None):
+        if self.camera.capturing:
+            if save_fn is None:
+                self.fn = os.path.join(self.dirname, timestamp() + ".h5")
+            else:
+                self.fn = os.path.join(self.dirname, save_fn)
+            if not os.path.exists(self.fn):
+                temp_file = h5py.File(self.fn, 'w')
+                temp_file.close()
+            self.h5_file = h5py.File(self.fn, 'w')
+
+    def reset_trial_data(self):
+        """Reset all of the trial data, such as heading and timestamp data."""
         # store a list of virtual objects to track
         self.virtual_objects = {}
         # setup a virtual fly heading object
@@ -1597,16 +1618,6 @@ class TrackingTrial():
         self.realtime = []   # list of timestamps for each stored frame
         self.test_info = {}  # the experiment parameters per test
 
-    def h5_setup(self, save_fn=None):
-        if self.camera.capturing:
-            if save_fn is None:
-                self.fn = os.path.join(self.dirname, timestamp() + ".h5")
-            else:
-                self.fn = os.path.join(self.dirname, save_fn)
-            if not os.path.exists(self.fn):
-                temp_file = h5py.File(self.fn, 'w')
-                temp_file.close()
-            self.h5_file = h5py.File(self.fn, 'w')
 
     def store_camera_settings(self):
         """Store the camera settings for analysis later."""
@@ -1672,11 +1683,6 @@ class TrackingTrial():
             self.headings += [self.camera.get_headings()]
             self.headings_smooth += [self.camera.get_headings_smooth()]
             self.headings_unwrapped += [self.camera.get_headings_unwrapped()]
-            # try:
-            #     self.virtual_headings += [self.virtual_objects['fly_heading'].get_angles()]
-            # except:
-            #     breakpoint()
-            self.virtual_headings_test = []
             self.tests += [is_test]
             if info is not None:
                 for param, value in info.items():
@@ -1725,16 +1731,16 @@ class TrackingTrial():
         # if self.camera.capturing and not self.camera.dummy:
         if self.camera.capturing:
             # store the two heading measurements
-            if len(self.virtual_headings) > 0:
-                max_len = max([len(test) for test in self.virtual_headings])
-                new_virtual_headings = np.empty((len(self.virtual_headings), max_len), dtype=float)
-                new_virtual_headings.fill(np.nan)
-                for test, row in zip(self.virtual_headings, new_virtual_headings):
-                    row[:len(test)] = test
-                self.virtual_headings = new_virtual_headings
+            # if len(self.virtual_headings) > 0:
+            #     max_len = max([len(test) for test in self.virtual_headings])
+            #     new_virtual_headings = np.empty((len(self.virtual_headings), max_len), dtype=float)
+            #     new_virtual_headings.fill(np.nan)
+            #     for test, row in zip(self.virtual_headings, new_virtual_headings):
+            #         row[:len(test)] = test
+            #     self.virtual_headings = new_virtual_headings
             for vals, label in zip(
-                    [self.yaws, self.realtime, self.headings, self.headings_smooth, self.virtual_headings, self.headings_unwrapped],
-                    ['yaw', 'realtime', 'camera_heading', 'camera_heading_smooth', 'virtual_angle', 'camera_heading_unwrapped']):
+                    [self.yaws, self.realtime, self.headings, self.headings_smooth, self.headings_unwrapped],
+                    ['yaw', 'realtime', 'camera_heading', 'camera_heading_smooth', 'camera_heading_unwrapped']):
                 # remove any empty dimensions
                 if len(vals) > 1:
                     # convert the camera and display headings into 2D arrays
@@ -1839,7 +1845,8 @@ class TrackingTrial():
                 # time.sleep(1)
                 # if os.path.exists(new_fn):
                 #     print(f"data file successfully stored at {new_fn}")
-
+        self.reset_trial_data()        
+        self.camera.clear_headings()
 
     def add_virtual_object(self, name, motion_gain=-1, start_angle=None):
         # allow for passing functions as variables
@@ -1976,7 +1983,8 @@ class VirtualObject():
             # if the translation is relative to the fly's current heading,
             # then rotate the position differential by the current orientation
             angle = self.heading
-            # breakpoint()
+            if np.isnan(angle):
+                breakpoint()
             if self.relative_translation:
                 angle = np.copy(self.heading)
             else:
@@ -2013,7 +2021,8 @@ class VirtualObject():
             if np.any(past_no_nans):
                 last_non_nan = np.where(past_no_nans)[0][-1]
                 self.virtual_angle = self.past_angles[last_non_nan]
-            # else:
+            else:
+                breakpoint()
             #     self.virtual_angle = self.heading
         else:
             if len(self.past_angles) > 1:
