@@ -784,6 +784,8 @@ class Camera():
         self.img_xs, self.img_ys = cp.array(self.img_xs), cp.array(self.img_ys)
         self.img_coords = cp.array([self.img_xs, self.img_ys]).transpose(1, 2, 0)
         self.img_dists = cp.array(cp.sqrt(self.img_xs**2 + self.img_ys**2))
+        # make a circular inclusion mask to get the img_coords within the biggest fitting circle
+        self.img_within_circle = self.img_dists < min(self.width, self.height)/2
         # self.img_angs = np.arctan2(self.img_ys, self.img_xs)
 
     def arm(self):
@@ -1248,7 +1250,8 @@ class Camera():
                 else:
                     frame_mask = frames > thresh
                 # let's use matrix operations to get the center of mass for all thresholded frames at once
-                diffs = (self.img_coords[None] * frame_mask[..., None]).sum((1, 2)) / frame_mask.sum((1, 2))[..., None]
+                # diffs = (self.img_coords[None] * frame_mask[..., None]).sum((1, 2)) / frame_mask.sum((1, 2))[..., None]
+                diffs = (self.img_coords[self.img_within_circle][None] * frame_mask[:, self.img_within_circle, None]).sum(1) / frame_mask[:, self.img_within_circle].sum(1)[..., None]
                 diffs = -diffs[: , [1,0]]
                 # convert from heading angle to head position for each heading
                 heading_pos = self.inner_r * cp.array([cp.sin(headings), cp.cos(headings)]).T
