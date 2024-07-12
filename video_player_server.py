@@ -726,7 +726,10 @@ class VideoGUI(QtWidgets.QMainWindow):
             if pad > 0:
                 frame[pad:-pad, pad:-pad] = 255 - frame[pad:-pad, pad:-pad]
             else:
-                frame[..., :3] = 255 - frame[..., :3]
+                if frame.ndim > 2:
+                    frame[..., :3] = 255 - frame[..., :3]
+                else:
+                    frame = 255 - frame
         # save the image for troubleshooting
         # plt.imsave("test.png", frame.astype('uint8'))
         # update the image
