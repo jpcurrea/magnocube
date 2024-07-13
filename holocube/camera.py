@@ -1913,15 +1913,14 @@ class TrackingTrial():
         if start_angle is None:
             start_angle = self.heading
         # make a virtual object instance to keep track of other objects
-        self.virtual_objects[name] = VirtualObject(start_angle, motion_gain, name)
+        self.virtual_objects[name] = VirtualObject(start_angle, motion_gain, name, self.camera)
 
     def update_objects(self, heading):
         self.heading = heading
         for lbl, object in self.virtual_objects.items():
             object.update_angle(self.heading)
             object.update_position()
-            # test: print the current position
-            # print(object.virtual_pos)
+            object.check_triggers()
 
     def get_object_heading(self, lbl):
         """Get the fly heading and store for later."""
@@ -1937,12 +1936,14 @@ class TrackingTrial():
     def reset_virtual_object_motion(self):
         for lbl, object in self.virtual_objects.items():
             object.clear_motion()
+            object.reset_triggers()
 
     def get_heading(self):
         return self.heading
 
+
 class VirtualObject():
-    def __init__(self, start_angle=0, yaw_gain=-1, name=None):
+    def __init__(self, start_angle=0, yaw_gain=-1, name=None, camera=None):
         """Keep track of the angular location of a virtual object.
 
         Parameters
@@ -1956,11 +1957,13 @@ class VirtualObject():
         self.virtual_angle = self.start_angle
         self.yaw, self.pitch, self.roll = 0, 0, 0
         self.virtual_pos = np.array([0, 0, 0], dtype=float)
+        self.camera = camera
         self.revolution = 0
         self.past_angles = []
         self.past_headings = []
         self.past_positions = []
         self.past_angles_wrapped = []
+        self.triggers = []
         self.frame_num = 0
         self.name = name
 
@@ -2115,6 +2118,23 @@ class VirtualObject():
             # print(f"virtual_angle: {self.virtual_angle}, heading: {heading}, start_angle: {self.start_angle}, past_angles: {self.past_angles}, past_angles_wrapped: {self.past_angles_wrapped}")
         self.past_angles += [self.virtual_angle]
         self.past_angles_wrapped += [heading]
+        # if a kalman filter is active, store the latest heading data and add it to a list of smoothed heading values
+        # divided by the duration of a frame (to get it in units of rads per second)
+        if 'kalman_filter' in dir(self):
+            self.kalman_filter.store(self.virtual_angle)
+            self.past_angles_smooth += [self.kalman_filter.predict()]
+            # calculate the angular velocity as the difference between the current and previous angle
+            if len(self.past_angles_smooth) > 1:
+                self.past_angular_velocity = self.angular_velocity
+                self.angular_velocity = (self.past_angles_smooth[-1] - self.past_angles_smooth[-2]) * self.camera.framerate
+                self.angular_speed = abs(self.angular_velocity)
+            # and the angular acceleration as the difference between the current and previous angular velocity
+            if len(self.past_angles_smooth) > 2:
+                self.angular_acceleration = self.angular_velocity - self.past_angular_velocity
+                self.angular_acce_mag = abs(self.angular_acceleration)
+            else:
+                self.angular_acceleration = 0
+                self.angular_acce_mag = abs(self.angular_acceleration)
         # update frame counter
         self.frame_num += 1
 
@@ -2221,6 +2241,126 @@ class VirtualObject():
             if var in dir(self):
                 delattr(self, var)
         self.frame_num = 0
+
+    # todo: make a function for setting up different kinds of triggers
+    def add_trigger(self, trigger_variable='angle', **trigger_kwargs):
+        """Set the conditions for a boolean function to trigger an event.
+
+        Parameters
+        ----------
+        trigger_variable : str, default='angle'
+            The type of trigger to set. Options include 'angle', 'velocity', and 'acceleration'.
+            Note that the magnitude (abs. value) is used for the velocity and acceleration triggers.
+        **trigger_kwargs : dict
+            The keyword arguments for the trigger function. This includes the trigger event,
+            condition function, lower and upper bounds, and delay.
+        """
+        if trigger_variable in dir(self):
+            # first, let's grab the trigger variable
+            var = getattr(self, trigger_variable)
+        elif trigger_variable ['velocity', 'acceleration'] and 'kalman_filter' not in dir(self):
+            # start a kalman filter to measure the angular velocity and acceleration 
+            # after some kalman smoothing
+            self.kalman_filter = KalmanAngle(jerk_std=self.camera.kalman_jerk_std, measurement_noise_x=self.camera.kalman_noise)
+            self.past_angles_smooth = []
+            self.angular_velocity = 0
+            self.past_angular_velocity = 0
+        # now let's make a trigger object
+        self.triggers += [Trigger(var, **trigger_kwargs)]
+
+    def check_triggers(self, ):
+        for trigger in self.triggers:
+            trigger.check()
+
+    def reset_triggers(self):
+        for trigger in self.triggers:
+            trigger.reset()
+
+class Trigger():
+    def __init__(self, trigger_variable, update_type='continuous', trigger_event=None,
+                 condition_function=None, lower_bound=0, upper_bound=np.inf, delay=0):
+        """A class for handling triggers based on the virtual object's motion.
+
+        The trigger function is desinged to be flexible, with two main options:
+        1) you can pass a function to condition_function that will be called to check
+        if the trigger condition is met. 
+        2) you can pass a trigger_event that will be called if the trigger_variable
+        falls within the lower and upper bounds. This will be the defualt case, assuming
+        no function is passed to condition_function.
+
+        Parameters
+        ----------
+        trigger_variable : object
+            The VirtualObject attribute used to trigger an event.
+        update_type : str, default='continuous'
+            The type of update to apply to the trigger. Options include 'continuous', 'once', and 'on_change'.
+        trigger_event : callable, default=None
+            The function to call to check if the trigger condition is met.
+        lower_bound : float, default=0
+            The lower bound of the value used for the trigger.
+        upper_bound : float, default=np.pi
+            The upper bound of the value used for the trigger.
+        delay : int, default=0
+            The delay in frames before the trigger is activated.
+        """
+        self.trigger_variable = trigger_variable
+        self.update_type = update_type
+        self.trigger_event = trigger_event
+        self.condition_function = condition_function
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+        self.delay = delay
+        self.past_condition = False
+        self.reps = 0
+        self.frames_since_trigger = 0
+        self.trigger = False
+
+    def check(self):
+        """Check if the trigger condition is met.
+
+        the update type will determine when and how often to run the trigger
+            - 'continuous' will run the trigger every frame that the condition is True
+            - 'once' will run the trigger only the first time the condition is True
+            - 'on_change' will run the trigger only when the condition changes from False to True 
+                or True to False
+            - 'on_rise' will run the trigger only when the condition changes from False to True
+            - 'on_fall' will run the trigger only when the condition changes from True to False
+        the delay will determine how many frames to wait before running the trigger
+        the trigger can only be activated if it isn't already active
+        """
+        # first, let's grab the trigger variable
+        var = self.trigger_variable
+        # check if the condition is met
+        if callable(self.condition_function):
+            condition = self.condition_function(var)
+        else:
+            condition = (var > self.lower_bound) and (var <= self.upper_bound)
+        if self.trigger:
+            if self.frames_since_trigger < self.delay:
+                self.frames_since_trigger += 1
+            else:
+                self.trigger_event()
+                self.reps += 1
+                self.trigger = False
+                self.frames_since_trigger = 0
+        else:
+            # check if the update_type is fulfilled
+            if self.update_type == 'continuous':
+                self.trigger = condition
+            elif self.update_type == 'once':
+                self.trigger = condition and self.reps == 0
+            elif self.update_type == 'on_change':
+                self.trigger = condition != self.past_condition
+            elif self.update_type == 'on_rise':
+                self.trigger = condition and not self.past_condition
+            elif self.update_type == 'on_fall':
+                self.trigger = not condition and self.past_condition
+
+    def reset(self):
+        self.trigger = False
+        self.reps = 0
+        self.frames_since_trigger = 0
+        self.past_condition = False
 
 
 def rotate(arr, angle=np.pi/2):
