@@ -33,6 +33,7 @@ except:
     pyspin_loaded = False
 
 import scipy
+import sklearn.cluster 
 from skvideo import io
 import struct
 import subprocess
@@ -308,6 +309,53 @@ class PixelRing():
             self.thresh = self.remove_half(self.thresh, tail_angles)
         # we want the center of mass by multiplying the threshold array by each of the x and y coords
         self.com = cp.sum(self.coords * self.thresh[:, :, None], axis=1) / cp.sum(self.thresh, axis=1)[:, None]
+        # get the angle of the center of mass
+        self.angle = cp.arctan2(self.com[:, 1], self.com[:, 0])
+        return self.angle
+
+    def get_angle_kmeans(self, frames, tail_angles=None, thresh=100, invert=False):
+        """Get the angle of the pixels with the larger cluster using KMeans.
+
+        Parameters
+        ----------
+        frames : cupy.ndarray
+            The frame(s) to be used for the angle calculation.
+        thresh : int, default=100
+            The threshold value for the pixel values.
+        invert : bool, default=False
+            Whether to invert the threshold operation.
+        """
+        # get the subset of pixels corresponding to the ring
+        frame_vals = frames[:, self.pixel_inds[0], self.pixel_inds[1]]
+        # update the threshold mask
+        if invert:
+            self.thresh = frame_vals < thresh
+        else:
+            self.thresh = frame_vals > thresh
+        # remove half of the pixels if specified by the tail_angles
+        if tail_angles is not None:
+            self.thresh = self.remove_half(self.thresh, tail_angles)
+        # instead of using the center of mass, let's get the larger of two clusters
+        # using KMeans and the previous cluster means as seeds
+        # use the 2D coordinates of the pixels to get the cluster centers
+        # check if kmeans instance is already stored
+        first_round = False
+        if 'kmeans' not in dir(self):
+            self.kmeans = sklearn.cluster.KMeans(n_clusters=2)
+            first_round = True
+        # get the cluster centers of self.coords, after applying the threshold
+        centers = []
+        for thresh in self.thresh:
+            self.kmeans.fit(self.coords[thresh])
+            if first_round:
+                # in the first round, make the larger cluster the first cluster
+                if cp.sum(self.kmeans.labels_ == 0) < cp.sum(self.kmeans.labels_ == 1):
+                    self.kmeans.labels_ = 1 - self.kmeans.labels_
+                    self.kmeans.cluster_centers_ = self.kmeans.cluster_centers_[::-1]
+            # make the next init seed be the first cluster and it's inverse (thus 180 degrees apart)
+            self.kmeans.init = np.array([self.kmeans.cluster_centers_[0], -self.kmeans.cluster_centers_[0]])
+            centers += [self.kmeans.cluster_centers_[0]]
+        self.com = np.array(centers)
         # get the angle of the center of mass
         self.angle = cp.arctan2(self.com[:, 1], self.com[:, 0])
         return self.angle
@@ -784,6 +832,8 @@ class Camera():
         self.img_xs, self.img_ys = cp.array(self.img_xs), cp.array(self.img_ys)
         self.img_coords = cp.array([self.img_xs, self.img_ys]).transpose(1, 2, 0)
         self.img_dists = cp.array(cp.sqrt(self.img_xs**2 + self.img_ys**2))
+        # make a circular inclusion mask to get the img_coords within the biggest fitting circle
+        self.img_within_circle = self.img_dists < min(self.width, self.height)/2
         # self.img_angs = np.arctan2(self.img_ys, self.img_xs)
 
     def arm(self):
@@ -1233,7 +1283,10 @@ class Camera():
             frames = self.buffer[include]
             self.buffer_start = self.buffer_stop
             # 1. get the tail angle using the outer ring
-            tail_dir = self.outer_ring.get_angle(frames, None, thresh=thresh, invert=invert)
+            # todo: add a new function to outer_ring to get the tail angle even if the head
+            # is accidentally included in the outer ring
+            # tail_dir = self.outer_ring.get_angle(frames, None, thresh=thresh, invert=invert)
+            tail_dir = self.outer_ring.get_angle_kmeans(frames, None, thresh=thresh, invert=invert)
             center_x, center_y = self.width/2, self.height/2
             # 2a. if flipped, treat tail_dir as if it's the head_dir
             if self.flipped:
@@ -1248,7 +1301,8 @@ class Camera():
                 else:
                     frame_mask = frames > thresh
                 # let's use matrix operations to get the center of mass for all thresholded frames at once
-                diffs = (self.img_coords[None] * frame_mask[..., None]).sum((1, 2)) / frame_mask.sum((1, 2))[..., None]
+                # diffs = (self.img_coords[None] * frame_mask[..., None]).sum((1, 2)) / frame_mask.sum((1, 2))[..., None]
+                diffs = (self.img_coords[self.img_within_circle][None] * frame_mask[:, self.img_within_circle, None]).sum(1) / frame_mask[:, self.img_within_circle].sum(1)[..., None]
                 diffs = -diffs[: , [1,0]]
                 # convert from heading angle to head position for each heading
                 heading_pos = self.inner_r * cp.array([cp.sin(headings), cp.cos(headings)]).T
