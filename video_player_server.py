@@ -726,7 +726,10 @@ class VideoGUI(QtWidgets.QMainWindow):
             if pad > 0:
                 frame[pad:-pad, pad:-pad] = 255 - frame[pad:-pad, pad:-pad]
             else:
-                frame[..., :3] = 255 - frame[..., :3]
+                if frame.ndim == 2:
+                    frame = 255 - frame
+                elif frame.ndim == 3:
+                    frame[..., :3] = 255 - frame[..., :3]
         # save the image for troubleshooting
         # plt.imsave("test.png", frame.astype('uint8'))
         # update the image
@@ -795,6 +798,8 @@ class VideoGUI(QtWidgets.QMainWindow):
         if time.time() - self.config_update_time > 5:
             self.config_update_time = time.time()
             self.import_config()
+        if self.heading_smooth == 0:
+            print(self.data['heading_smooth'])
         if np.isnan(self.heading):
             # print(self.data['heading'])
             self.tracking_active = False
@@ -979,7 +984,7 @@ class VideoGUI(QtWidgets.QMainWindow):
 
 
 class FrameUpdater():
-    def __init__(self, height, width, display_rate=60., buffer_fn='_buffer.npy', config_fn='./video_player.config', wingbeat_analysis=False):
+    def __init__(self, height, width, display_rate=120., buffer_fn='_buffer.npy', config_fn='./video_player.config', wingbeat_analysis=False):
         self.buffer_fn = buffer_fn
         self.height = height
         self.width = width
