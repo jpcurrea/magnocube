@@ -12,7 +12,7 @@ from holocube.camera import TrackingTrial
 num_frames = inf
 NAME = "optic_flow_velocity_tuning"
 FOLDER = os.path.abspath(NAME)
-CROSSHAIR = True
+CROSSHAIR = False
 NUM_FRAMES = 60*20   # should be about 10 seconds
 NUM_FRAMES /= 5
 SPEED = .1

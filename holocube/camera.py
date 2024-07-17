@@ -339,23 +339,31 @@ class PixelRing():
         # using KMeans and the previous cluster means as seeds
         # use the 2D coordinates of the pixels to get the cluster centers
         # check if kmeans instance is already stored
-        first_round = False
-        if 'kmeans' not in dir(self):
-            self.kmeans = sklearn.cluster.KMeans(n_clusters=2)
-            first_round = True
+        # first_round = False
+        # if 'kmeans' not in dir(self):
+        self.kmeans = sklearn.cluster.KMeans(n_clusters=2, n_init=1)
+        # self.kmeans = sklearn.cluster.MiniBatchKMeans(n_clusters=2, n_init=1)
+        first_round = True
         # get the cluster centers of self.coords, after applying the threshold
         centers = []
         for thresh in self.thresh:
-            self.kmeans.fit(self.coords[thresh])
-            if first_round:
-                # in the first round, make the larger cluster the first cluster
-                if cp.sum(self.kmeans.labels_ == 0) < cp.sum(self.kmeans.labels_ == 1):
-                    self.kmeans.labels_ = 1 - self.kmeans.labels_
-                    self.kmeans.cluster_centers_ = self.kmeans.cluster_centers_[::-1]
-            # make the next init seed be the first cluster and it's inverse (thus 180 degrees apart)
-            self.kmeans.init = np.array([self.kmeans.cluster_centers_[0], -self.kmeans.cluster_centers_[0]])
-            centers += [self.kmeans.cluster_centers_[0]]
-        self.com = np.array(centers)
+            if cp.any(thresh):
+                if cupy_loaded:
+                    vals = self.coords[thresh].get()
+                else:
+                    vals = self.coords[thresh]
+                self.kmeans.fit(vals)
+                if first_round:
+                    # in the first round, make the larger cluster the first cluster
+                    if cp.sum(self.kmeans.labels_ == 0) < cp.sum(self.kmeans.labels_ == 1):
+                        self.kmeans.labels_ = 1 - self.kmeans.labels_
+                        self.kmeans.cluster_centers_ = self.kmeans.cluster_centers_[::-1]
+                # make the next init seed be the first cluster and it's inverse (thus 180 degrees apart)
+                self.kmeans.init = np.array([self.kmeans.cluster_centers_[0], -self.kmeans.cluster_centers_[0]])
+                centers += [self.kmeans.cluster_centers_[0]]
+            else:
+                centers += [np.array([np.nan, np.nan])]
+        self.com = cp.array(centers)
         # get the angle of the center of mass
         self.angle = cp.arctan2(self.com[:, 1], self.com[:, 0])
         return self.angle
@@ -1286,14 +1294,26 @@ class Camera():
             # todo: add a new function to outer_ring to get the tail angle even if the head
             # is accidentally included in the outer ring
             # tail_dir = self.outer_ring.get_angle(frames, None, thresh=thresh, invert=invert)
-            tail_dir = self.outer_ring.get_angle_kmeans(frames, None, thresh=thresh, invert=invert)
+            # if len(self.headings) < 10:
+            #     tail_dir = self.outer_ring.get_angle_kmeans(frames, None, thresh=thresh, invert=invert)
+            # else:
+            # last_heading = self.headings[-1]
+            # tail_dir = self.outer_ring.get_angle(frames, np.repeat(last_heading, len(frames)), thresh=thresh, invert=invert)
+            tail_dir = self.outer_ring.get_angle(frames, None, thresh=thresh, invert=invert)
             center_x, center_y = self.width/2, self.height/2
             # 2a. if flipped, treat tail_dir as if it's the head_dir
             if self.flipped:
                 headings = tail_dir
-            # 2b. otherwise, get the head angle using the inner ring by omitting the tail angle
-            else:
+            # 2b. if not flipped but we generated a tail direction, get the head angle using the inner ring by omitting the tail angle
+            elif not cp.all(cp.isnan(tail_dir)):
+                nans = cp.isnan(tail_dir)
+                if cp.any(nans):
+                    # replace NaNs with the mean of the non-nan values
+                    mean_val = cp.mean(tail_dir[~nans])
+                    tail_dir[nans] = mean_val
                 headings = self.inner_ring.get_angle(frames, tail_dir, thresh=thresh, invert=invert)
+            else:
+                headings = self.inner_ring.get_angle(frames, thresh=thresh, invert=invert)
             # 3. Use the center of mass to improve head_dir
             if self.com_correction:
                 if invert:

@@ -12,7 +12,7 @@ from holocube.camera import TrackingTrial
 num_frames = inf
 FOLDER = os.path.abspath("optic_flow_4_kinds_exp")
 NUM_FRAMES = 60*20   # should be about 10 seconds
-NUM_FRAMES /= 5
+# NUM_FRAMES /= 5
 SPEED = .1
 FAR = 5
 far = FAR
@@ -97,6 +97,7 @@ for rot_gain in [0, -1]:
                 [tracker.update_objects, hc.camera.update_heading],
                 [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
                 # [cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot],
+                [print, tracker.virtual_objects['pts'].get_angle],
                 ]
 
         ends = [
