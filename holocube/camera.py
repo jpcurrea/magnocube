@@ -757,7 +757,8 @@ class Camera():
         self.offset = 0
 
     def dummy_setup(self):
-        self.dummy_fn = copy.copy(self.camera)
+        if 'dummy_fn' not in dir(self):
+            self.dummy_fn = copy.copy(self.camera)
         self.dummy = True
         self.camera = None
         # load the video as a numpy array
@@ -768,6 +769,8 @@ class Camera():
             input_dict = {'-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
             self.video = FFmpegReaderCupy(self.dummy_fn, inputdict=input_dict)
         else:
+            if 'video' in dir(self):
+                self.video.close()
             self.video = io.FFmpegReader(self.dummy_fn)
         self.framerate = float(self.video.inputfps)
         self.save_fn = None
@@ -921,8 +924,8 @@ class Camera():
             self.buffer_stop += 1
             self.buffer_stop %= len(self.buffer)
             # for dummy videos, call update_heading normally if the video isn't being stored
-            if self.dummy and not self.storing and self.vid_frame_num % frame_ratio == 0:
-                self.update_heading()
+            # if self.dummy and not self.storing and self.vid_frame_num % frame_ratio == 0:
+            #     self.update_heading()
 
     def capture_start(self, buffer_size=100):
         """Begin capturing, processing, and storing frames in a Thread.
@@ -1117,7 +1120,7 @@ class Camera():
         if self.video_player.poll() is None:
             self.video_player.kill()
 
-    def display(self, framerate=60.):
+    def display(self, framerate=12.):
         """Save frame and heading for video_player_server.py to display."""
         # note: there were problems due to stray threads continuously running
         interval = 1/framerate

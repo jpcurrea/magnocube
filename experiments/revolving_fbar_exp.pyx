@@ -44,9 +44,9 @@ num_frames = DURATION * hc.scheduler.freq
 hc.camera.update_heading()
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
 tracker.add_virtual_object(name='bar', motion_gain=-1,
-                           start_angle=hc.camera.update_heading, object=True)
+                           start_angle=hc.camera.update_heading)
 tracker.add_virtual_object(name='bg', motion_gain=-1,
-                           start_angle=hc.camera.update_heading, object=True)
+                           start_angle=hc.camera.update_heading)
 # experiment: add this experiment to the scheduler
 # save_fn = os.path.join(FOLDER, str(timestamp()))
 # cyl = hc.stim.Quad_image(hc.window, left=-1*pi, right=1*pi, bottom=-.2*pi, top=.2*pi, xres=512,
@@ -56,11 +56,12 @@ tracker.add_virtual_object(name='bg', motion_gain=-1,
 sequence_length = 2**9
 # xres = 96
 xres = sequence_length
-cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=-.2*pi,
-                         top=.2*pi, xres=xres,
+bottom, top = -np.arctan2(1, 2*np.sqrt(2)), np.arctan2(3, 2*np.sqrt(2))
+cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
+                         top=top, xres=xres,
                          yres=xres, xdivs=64, ydivs=1, dist=2)
-motion_bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, bottom=-.2*pi,
-                                top=.2*pi, xres=xres,  
+motion_bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, bottom=bottom,
+                                top=top, xres=xres,  
                                 yres=xres, xdivs=64, ydivs=1)
 
 
@@ -73,9 +74,9 @@ mseq = hc.tools.mseq(2, order, whichSeq=which_seq)
 mseq = mseq[:width]
 
 arr = np.zeros((height, width, 4), dtype='uint8')
+# arr[:, 1:][:, mseq == 1, 2] = 255
+arr[:, 1:][:, mseq == 1] = 255
 arr[..., -1] = 255
-arr[:, 1:][:, mseq == 1, 2] = 255
-# arr[:, 1:][:, mseq == 1] = 255
 # arr[:] = 255
 # arr[..., :2] = 0
 # arr[:] = 0
@@ -103,8 +104,8 @@ upper_bound = int(bar_width/2)
 dist = int(round(.25 * xres))
 lower_bound += dist
 upper_bound += dist
-# bar_arr[:, lower_bound:upper_bound, :3][:, bar_vals == 1] = 255
-bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
+bar_arr[:, lower_bound:upper_bound, :3][:, bar_vals == 1] = 255
+# bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
 bar_arr[:, lower_bound:upper_bound, 3] = 255                                  # alpha
 # plt.imsave('test_img.png', bar_arr)
 motion_bar.set_image(bar_arr)
@@ -173,6 +174,7 @@ for bg_gain in [-1, 0]:
             bar_oris = np.arange(num_frames) * bar_velocity / hc.scheduler.freq
             bar_oris += np.pi
             starts = [[motion_bar.switch, True],
+                    [print, f"bg gain: {bg_gain}, bar gain: {bar_gain}, bar velocity: {bar_velocity/np.pi} pi/s"],
                     [cyl.switch, True],
                     [hc.camera.import_config],
                     [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, hc.camera.update_heading],

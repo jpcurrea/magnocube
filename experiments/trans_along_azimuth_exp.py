@@ -10,7 +10,7 @@ import os
 from holocube.camera import TrackingTrial
 
 num_frames = inf
-CROSSHAIR = False
+CROSSHAIR = True
 NAME = "translation_along_azimuth"
 FOLDER = os.path.abspath(NAME)
 NUM_FRAMES = 60*20   # should be about 10 seconds
@@ -110,7 +110,6 @@ for rot_gain in [0, -1]:
                 [tracker.update_objects, hc.camera.update_heading],
                 [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
                 [print, tracker.virtual_objects['pts'].get_angle],
-                
                 ]
 
         ends = [
