@@ -906,8 +906,8 @@ class Camera():
                     self.dummy_setup()
                     self.vid_frame_num = 0
                     frame = self.video.__next__()
-                time.sleep(1.0/self.framerate)
-                # time.sleep(1.0/30.0)
+                # time.sleep(1.0/self.framerate)
+                time.sleep(1.0/30.0)
             else:
                 # self.frame = self.camera.GetNextImage(timeout).GetData().reshape((self.height, self.width))
                 # instead, grab the raw data and convert into 
@@ -2056,7 +2056,9 @@ class VirtualObject():
         if pos is not None:
             if not np.all(pos == 0) and not np.any(np.isnan(pos)):
                 update_position = True
+            pos = np.array(pos)
         if update_position:
+            # print(pos)
             # if the translation is relative to the fly's current heading,
             # then rotate the position differential by the current orientation
             angle = self.heading
@@ -2071,12 +2073,23 @@ class VirtualObject():
             # flips the angle and makes it relative to the fly's current heading
             if subjective:
                 angle -= self.virtual_angle
-            if angle != 0:
+                amp = np.linalg.norm(pos)
                 # rotate the position differential by the current orientation
                 x, y, z = pos
-                amp = np.linalg.norm(pos)
-                pos = amp * np.array([np.sin(angle), y, np.cos(angle)])
+            if angle != 0:
+                # if self.orientation_gain != 1 and z < 0:
+                #     angle += np.pi
+                # pos = amp * np.array([np.sin(angle), y, np.cos(angle)])
+                new_pos = rotate(pos[[0, 2]], angle)
+                pos = [new_pos[0], y, new_pos[1]]
+                # todo: rotate the position vector using our function, but we need the order
+                # to stay the same
+                # let's use an example
+                # pos = np.array([0, 0, .1])
+                # pos_old = amp * np.array([np.sin(angle), y, np.cos(angle)])
+                # pos_new = rotate(pos[[0, 2]], angle)
             pos = np.array(pos, dtype=float)
+            # print(pos)
             self.virtual_pos += pos
         self.past_positions += [self.virtual_pos.tolist()]
 

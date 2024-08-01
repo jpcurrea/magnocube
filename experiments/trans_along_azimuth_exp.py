@@ -92,7 +92,7 @@ offset_angles = np.linspace(0, 2*np.pi, 12, endpoint=False)
 num_frames = NUM_FRAMES
 
 for rot_gain in [0, -1]:
-    for offset in offset_angles:
+    for offset in offset_angles[offset_angles != 0]:
         # rotate the position delta by the starting angle
         sint, cost = np.sin(offset), np.cos(offset)
         yaw_mat = np.array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
@@ -104,12 +104,12 @@ for rot_gain in [0, -1]:
                 [tracker.virtual_objects['pts'].set_motion_parameters, rot_gain, hc.camera.update_heading],
                 [tracker.virtual_objects['pts'].add_motion, None, position_delta],
                 # add the point field
-                [print, f"rotation: {rot_gain}, translation angle: {offset/np.pi:.2f} pi"]
+                [print, f"rotation: {rot_gain}, translation speed: {SPEED:.2f}, offset: {offset/np.pi:.2f} pi"]
                 ]
         middles=[[hc.camera.get_background, hc.window.get_frame],
                 [tracker.update_objects, hc.camera.update_heading],
                 [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
-                [print, tracker.virtual_objects['pts'].get_angle],
+                # [print, tracker.virtual_objects['pts'].get_angle],
                 ]
 
         ends = [
@@ -156,6 +156,6 @@ if CROSSHAIR:
     starts.append([tracker.virtual_objects['crosshair'].set_motion_parameters, 0, hc.camera.update_heading])
     middles.append([cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot])
 
-hc.scheduler.add_rest(num_frames, starts, middles, ends)
+#hc.scheduler.add_rest(num_frames, starts, middles, ends)
 
 

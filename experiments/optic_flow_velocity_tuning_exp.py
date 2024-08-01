@@ -87,20 +87,24 @@ if CROSSHAIR:
 hc.scheduler.add_exp(name=NAME, starts=exp_starts, ends=exp_ends)
 
 starts, middles, ends = [], [], []
-speeds = np.linspace(-2*SPEED, 2*SPEED, 9, endpoint=True)
+# speeds = np.linspace(-2*SPEED, 2*SPEED, 9, endpoint=True)
+speeds = np.array([-.4, -.2, -.1, -.05, 0, .05, .1, .2, .4])
+# angles = np.zeros(NUM_FRAMES)
+# angles[100:] = np.linspace(0, 12*np.pi, NUM_FRAMES - 100)
+# angles = angles[None]
 for rot_gain in [0, -1]:
-# for rot_gain in [1, 0]:
-    for trans_speed in speeds:
+    for trans_speed in speeds[speeds < 0]:
         starts =[
                 # [pts.switch, True],
                 [tracker.virtual_objects['pts'].set_motion_parameters, rot_gain, hc.camera.update_heading],
-                # [tracker.virtual_objects['crosshair'].set_motion_parameters, 0, hc.camera.update_heading],
+                # [tracker.virtual_objects['pts'].set_motion_parameters, rot_gain, 0.0],
                 [tracker.virtual_objects['pts'].add_motion, None, trans_speed],
                 # add the point field
                 [print, f"rotation: {rot_gain}, translation speed: {trans_speed:.2f}, relative: True"]
                 ]
         middles=[[hc.camera.get_background, hc.window.get_frame],
                 [tracker.update_objects, hc.camera.update_heading],
+                # [tracker.update_objects, np.pi/2],
                 [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
                 ]
 
@@ -116,6 +120,7 @@ for rot_gain in [0, -1]:
                 ]
         if CROSSHAIR:
             starts.append([tracker.virtual_objects['crosshair'].set_motion_parameters, 0, hc.camera.update_heading])
+            # starts.append([tracker.virtual_objects['crosshair'].set_motion_parameters, 0, 0])
             middles.append([cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot])
             ends.append([cross_hair_image.reset_pos_rot])
         hc.scheduler.add_test(NUM_FRAMES, starts, middles, ends)

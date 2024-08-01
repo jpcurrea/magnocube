@@ -19,7 +19,7 @@ DUMMY = True
 # DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\HQ_video\\2023_08_01_16_19_10.mp4'
 # DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\flow_6_dof\\2024_03_13_11_39_05.mp4'
 # DUMMY_FN = 'H:\\Other computers\\My Computer\\pablo\\magnocube\\thrust_OL_exp\\2024_03_13_12_40_50.mp4'
-DUMMY_FN = 'test.mp4'
+DUMMY_FN = 'test_60fps.mp4'
 WING_ANALYSIS = False
 
 if DUMMY:
@@ -30,7 +30,7 @@ hc.window.start(config_file='test_viewport.config')
 hc.arduino.start('dummy')
 hc.scheduler.start(hc.window, randomize=False, default_rest_time=.1, freq=30)
 hc.scheduler.load_dir('experiments', suffix=('exp.py', 'rest.py'))
-hc.scheduler.randomize = True
+hc.scheduler.randomize = False
 hc.camera.display_start()
 
 #hc.window.inc_lift(1)
