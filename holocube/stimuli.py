@@ -2251,6 +2251,8 @@ class Quad_image(Movable):
 
     def blur_image(self, std, contrast=1):
         """Blur the image using scipy.ndimage.gaussian_filter by std."""
+        if isinstance(std, list):
+            std = std[0]
         if 'original_data' not in dir(self):
             self.original_data = self.data
         new_data = copy(self.original_data)

@@ -49,6 +49,9 @@ class Test():
         if frame_num == 0:                   # first frame
             for func, arg_list in self.starts:
                 try:
+                    # func(*[arg() if hasattr(arg, '__call__') else
+                    #     take(arg, frame_num, mode='wrap', axis=0) if isinstance(arg, ndarray) else
+                    #     arg for arg in arg_list])                    
                     func(*arg_list)
                 except:
                     breakpoint()

@@ -757,7 +757,8 @@ class Camera():
         self.offset = 0
 
     def dummy_setup(self):
-        self.dummy_fn = copy.copy(self.camera)
+        if 'dummy_fn' not in dir(self):
+            self.dummy_fn = copy.copy(self.camera)
         self.dummy = True
         self.camera = None
         # load the video as a numpy array
@@ -768,6 +769,8 @@ class Camera():
             input_dict = {'-hwaccel': 'cuda', '-hwaccel_output_format': 'cuda'}
             self.video = FFmpegReaderCupy(self.dummy_fn, inputdict=input_dict)
         else:
+            if 'video' in dir(self):
+                self.video.close()
             self.video = io.FFmpegReader(self.dummy_fn)
         self.framerate = float(self.video.inputfps)
         self.save_fn = None
@@ -903,8 +906,8 @@ class Camera():
                     self.dummy_setup()
                     self.vid_frame_num = 0
                     frame = self.video.__next__()
-                time.sleep(1.0/self.framerate)
-                # time.sleep(1.0/30.0)
+                # time.sleep(1.0/self.framerate)
+                time.sleep(1.0/30.0)
             else:
                 # self.frame = self.camera.GetNextImage(timeout).GetData().reshape((self.height, self.width))
                 # instead, grab the raw data and convert into 
@@ -1117,7 +1120,7 @@ class Camera():
         if self.video_player.poll() is None:
             self.video_player.kill()
 
-    def display(self, framerate=60.):
+    def display(self, framerate=12.):
         """Save frame and heading for video_player_server.py to display."""
         # note: there were problems due to stray threads continuously running
         interval = 1/framerate
@@ -1990,7 +1993,6 @@ class VirtualObject():
         # check if the motion_gain and start_angle values changed
         if 'orientation_gain' not in dir(self):
             update = True
-            update = True
         self.orientation_gain = yaw_gain
         self.position_gain = yaw_gain + 1
         if start_angle is None:
@@ -2055,7 +2057,9 @@ class VirtualObject():
         if pos is not None:
             if not np.all(pos == 0) and not np.any(np.isnan(pos)):
                 update_position = True
+            pos = np.array(pos)
         if update_position:
+            # print(pos)
             # if the translation is relative to the fly's current heading,
             # then rotate the position differential by the current orientation
             angle = self.heading
@@ -2071,11 +2075,10 @@ class VirtualObject():
             if subjective:
                 angle -= self.virtual_angle
             if angle != 0:
-                # rotate the position differential by the current orientation
-                x, y, z = pos
-                amp = np.linalg.norm(pos)
-                pos = amp * np.array([np.sin(angle), y, np.cos(angle)])
+                new_pos = rotate(pos[[0, 2]], angle)
+                pos = [new_pos[0], pos[1], new_pos[1]]
             pos = np.array(pos, dtype=float)
+            # print(pos)
             self.virtual_pos += pos
         self.past_positions += [self.virtual_pos.tolist()]
 
@@ -2083,6 +2086,7 @@ class VirtualObject():
         self.virtual_pos = np.array([0, 0, 0], dtype=float)
 
     def update_angle(self, heading):
+        # print(f"position_gain: {self.position_gain}, orientation_gain: {self.orientation_gain}, start_angle: {self.start_angle}, offset: {self.offset}")
         # check if the start angle is nan. if so, replace with the current heading
         self.heading = copy.copy(heading)
         self.past_headings += [self.heading]
@@ -2118,6 +2122,12 @@ class VirtualObject():
             #         heading_unwrapped - self.start_angle) + self.start_angle
             self.virtual_angle = mod * self.position_gain * (
                     heading_unwrapped - self.start_angle) + self.start_angle + self.offset
+            # if self.frame_num == 0:
+            #     print(f"virtual_angle: {self.virtual_angle}, heading: {heading}, start_angle: {self.start_angle}, past_angles: {self.past_angles}, past_angles_wrapped: {self.past_angles_wrapped}")
+            #     breakpoint()
+            # todo: add breakpoints at key points for the start_angle because it seems to be getting re-defined
+
+
             # if np.isnan(self.virtual_angle):
             #     breakpoint()
         # self.virtual_angle = mod * self.position_gain * headinge
@@ -2222,7 +2232,11 @@ class VirtualObject():
         Parameters
         ----------
         angle_offsets : float or array-like
-            The value(s) to add to the virtual angle. Optional: pass an array with 
+            The value(s) to add to the virtual angle. Can be a single value or
+            an array of values. If a function is passed, it will be called to
+            get the value(s) to add.
+
+            TODO: Optional: pass an array with 
             shape=(N, 3) for rotation about all 3 axes. Based on the position orientations,
             these should be in the order of [pitch, yaw, roll].
         position_offsets : array-like, shape = (N, 3), default=[[0, 0, 0]]
@@ -2235,8 +2249,32 @@ class VirtualObject():
         """
         self.clear_motion()
         if angle_offsets is not None:
+            if callable(angle_offsets):
+                # get the function output
+                angle_offsets = self.angle_offsets()
+            if isinstance(angle_offsets, (int, float)):
+                # assume this is a thrust velocity
+                angle_offsets = np.array([angle_offsets])
+            elif isinstance(angle_offsets, list):
+                # make into an array
+                angle_offsets = np.array(angle_offsets)
+            # check that it is a 2D array with shape (N, 3)
+            if angle_offsets.ndim != 1:
+                angle_offsets = np.squeeze(angle_offsets)
             self.angle_offsets = angle_offsets
         if position_offsets is not None:
+            if callable(position_offsets):
+                # get the function output
+                position_offsets = self.position_offsets()
+            if isinstance(position_offsets, (int, float)):
+                # assume this is a thrust velocity
+                position_offsets = np.array([[0, 0, position_offsets]])
+            elif isinstance(position_offsets, list):
+                # make into an array
+                position_offsets = np.array(position_offsets)
+            # check that it is a 2D array with shape (N, 3)
+            if position_offsets.ndim == 1:
+                position_offsets = np.array([position_offsets])
             self.position_offsets = position_offsets
         self.relative_translation = relative_translation
 

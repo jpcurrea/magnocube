@@ -1,11 +1,11 @@
-"""Test for the effect of revolving a motion defined bar on a moving background.
+"""Test for the effect of background vs. bar motion at 4 cardinal directions using white noise.
 
 Parameters:
--background: high resolution random pattern grating 
--bar_starts: 4 cardinal directions
--bg motion: revolve at a constant velocity from [-360, -180, -90, 0, 90, 180, 360. for the full experiment (3 seconds)
--bar motion: still for 1 second, then revolve at a constant velocity (-360, -180, -90, 0, 90, 180, 360)
-= 7 * 7 * 4 * 3 s = 9.8 minutes
+-background: high resolution random pattern grating which moves when no bar is
+ present
+-bar azimuths: 4 cardinal directions
+-time series: still for 2 seconds, msequence for 4
+-with or without blur: low pass filter of <5 degrees
 """
 from datetime import datetime
 import time
@@ -26,9 +26,8 @@ def timestamp():
     now = datetime.now()
     return now.strftime("%Y_%m_%d_%H_%M_%S")
 
-FOLDER = "revolving_fbar"
-FOLDER = os.path.abspath(FOLDER)
-DURATION = 10
+FOLDER = "WF feedback OL dark bar"
+DURATION = 6
 if not os.path.exists(FOLDER):
     os.mkdir(FOLDER)
 
@@ -44,25 +43,24 @@ num_frames = DURATION * hc.scheduler.freq
 hc.camera.update_heading()
 tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
 tracker.add_virtual_object(name='bar', motion_gain=-1,
-                           start_angle=hc.camera.update_heading)
+                           start_angle=hc.camera.update_heading, object=True)
 tracker.add_virtual_object(name='bg', motion_gain=-1,
-                           start_angle=hc.camera.update_heading)
+                           start_angle=hc.camera.update_heading, object=True)
 # experiment: add this experiment to the scheduler
 # save_fn = os.path.join(FOLDER, str(timestamp()))
 # cyl = hc.stim.Quad_image(hc.window, left=-1*pi, right=1*pi, bottom=-.2*pi, top=.2*pi, xres=512,
 #                          yres=512, xdivs=64, ydivs=1, dist=2)
 # bar = hc.stim.Quad_image(hc.window, left=-1*pi, right=1*pi, bottom=-.2*pi, top=.2*pi, xres=512,
 #                          yres=512, xdivs=64, ydivs=1)
-sequence_length = 2**9
+sequence_length = 2**7
 # xres = 96
 xres = sequence_length
-bottom, top = -np.arctan2(1, 2*np.sqrt(2)), np.arctan2(3, 2*np.sqrt(2))
-cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=bottom,
-                         top=top, xres=xres,
+cyl = hc.stim.Quad_image(hc.window, left= 0, right=2 * pi, bottom=-.2*pi,
+                         top=.2*pi, xres=xres,
                          yres=xres, xdivs=64, ydivs=1, dist=2)
-motion_bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, bottom=bottom,
-                                top=top, xres=xres,  
-                                yres=xres, xdivs=64, ydivs=1)
+bar = hc.stim.Quad_image(hc.window, left=0*pi, right=2*pi, bottom=-.2*pi,
+                         top=.2*pi, xres=xres,
+                         yres=xres, xdivs=64, ydivs=1)
 
 
 # make a random period gratingx
@@ -74,27 +72,22 @@ mseq = hc.tools.mseq(2, order, whichSeq=which_seq)
 mseq = mseq[:width]
 
 arr = np.zeros((height, width, 4), dtype='uint8')
-# arr[:, 1:][:, mseq == 1, 2] = 255
-arr[:, 1:][:, mseq == 1] = 255
 arr[..., -1] = 255
-# arr[:] = 255
+arr[:, 1:][:, mseq == 1, 2] = 255
 # arr[..., :2] = 0
 # arr[:] = 0
+cyl.set_image(arr)
 # grab a random 30 degrees of arr as the bar texture
 # width corresponds to 360 degrees
 # bar_width/heading = width/360 => bar_width = heading * width / 360
 bar_angle = 30 * np.pi / 180.                  # rads
-bar_width = int(round(bar_angle * width / (2 * np.pi)))
+bar_width = round(bar_angle * width / (2 * np.pi))
 # make the bar width even so that it's symmetrical about the origin
 if bar_width % 2 == 1:
     bar_width += 1
 # the possible starting points for the bar are 0 - (width - bar_width)
 bar_starts = np.arange(width - bar_width)
 bar_start = np.random.choice(bar_starts)
-# make another msequence for the bar stimulus
-which_seq = np.random.randint(100)
-mseq2 = hc.tools.mseq(2, order, whichSeq=which_seq)
-mseq2 = mseq2[:width]
 bar_vals = mseq[bar_start:bar_start + bar_width]
 bar_arr = np.zeros((height, width, 4), dtype='uint8')
 # add values for the lower bound
@@ -104,13 +97,9 @@ upper_bound = int(bar_width/2)
 dist = int(round(.25 * xres))
 lower_bound += dist
 upper_bound += dist
-bar_arr[:, lower_bound:upper_bound, :3][:, bar_vals == 1] = 255
 # bar_arr[:, lower_bound:upper_bound, 2][:, bar_vals == 1] = 255
-bar_arr[:, lower_bound:upper_bound, 3] = 255                                  # alpha
-# plt.imsave('test_img.png', bar_arr)
-motion_bar.set_image(bar_arr)
-cyl.set_image(arr)
-
+bar_arr[:, lower_bound:upper_bound, 3] = 255                                       # alpha
+bar.set_image(bar_arr)
 # prep for using an msequence for the orientations
 ts = np.linspace(0, DURATION, num_frames)
 orientations = np.zeros(num_frames)
@@ -122,34 +111,26 @@ start_frame = round(num_frames/3.)
 # OR use a triangle wave to control the relative position of the bar
 num_frames = DURATION * hc.scheduler.freq
 freq = 2   # oscillation frequency in Hz
-# amplitude = 30 * np.pi / 180. # oscillation amplitude
-amplitude = np.pi # oscillation amplitude
+amplitude = 30 * np.pi / 180. # oscillation amplitude
 amplitude /= 2.
 ts = np.linspace(0, DURATION, num_frames)
 orientations = np.zeros(num_frames)
-start_frame = int(round(num_frames/3.))
+start_frame = round(num_frames/3.)
 sawtooth = signal.sawtooth(freq * ts[:-start_frame] * 2*np.pi + np.pi/2., .5)
 orientations[start_frame:] = amplitude * sawtooth
 
-# define test parameters
-bg_gains = np.array([-1, 0])                     # closed and open loop
-bg_velocities = np.array([-135 * np.pi / 180., 0, 135 * np.pi / 180.])
-# starting_oris = np.pi/6 * np.arange(12)          # 12 evenly distributed starting locations
-# starting_oris = np.pi/6 * np.arange(12)          # 12 evenly distributed starting locations
-# starting_oris = np.pi/2 * np.array([0, 1, 2, 3])
-starting_oris = np.array([np.pi])
-bar_velocities = np.array([-np.pi, np.pi])       # rads/s
-# => 2 bar vel. x 3 bg vel. x 2 bg gains x 12 starting orientations
-# = 144 tests * 3 s = 7.2 minutes
+# make orientation offsets
+# starting_oris = (np.pi / 4) * np.arange(8)
+starting_oris = (np.pi / 2) * np.arange(8)
 
-
-exp_starts = [[hc.window.set_far, 5],
-              [hc.window.set_bg, [0., 0., 0., 0.]],
+exp_starts = [[hc.window.set_far, 3],
+              [hc.window.set_bg, [0., 0., 0., 1.]],
               [hc.camera.storing_start, -1, FOLDER, None, True],
               [tracker.h5_setup],
               [tracker.store_camera_settings],
               [tracker.virtual_objects['fly_heading'].set_motion_parameters, -1, hc.camera.update_heading],
-              [tracker.virtual_objects['bar'].set_motion_parameters, 0, hc.camera.update_heading],
+              [tracker.virtual_objects['bar'].set_motion_parameters, -1, hc.camera.update_heading],
+              # [tracker.virtual_objects['bar'].set_motion_parameters, 0, hc.camera.update_heading],
               [hc.camera.clear_headings],
               [tracker.add_exp_attr, 'video_fn', hc.camera.get_save_fn],
               [tracker.add_exp_attr, 'experiment', FOLDER],
@@ -163,47 +144,55 @@ exp_ends = [[hc.window.set_far,     1],
             [tracker.save],
             [hc.camera.storing_stop],
             ]
-hc.scheduler.add_exp(name=os.path.basename(FOLDER).replace("_", " "), starts=exp_starts, ends=exp_ends)
+hc.scheduler.add_exp(name=FOLDER, starts=exp_starts, ends=exp_ends)
 
+bg_gains = [-2, -1, -.5, 0, .5, 1, 2]
 bar_gain = 0
-tracker.start_time = 0
-for bg_gain in [-1, 0]:
-    for bar_gain in [-1, 0]:
-        for bar_velocity in bar_velocities:
-            # calculate the necessary orientations based on the bar and bg velocities
-            bar_oris = np.arange(num_frames) * bar_velocity / hc.scheduler.freq
-            bar_oris += np.pi
-            starts = [[motion_bar.switch, True],
-                    [print, f"bg gain: {bg_gain}, bar gain: {bar_gain}, bar velocity: {bar_velocity/np.pi} pi/s"],
-                    [cyl.switch, True],
-                    [hc.camera.import_config],
-                    [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, hc.camera.update_heading],
-                    [tracker.virtual_objects['bar'].set_motion_parameters, bar_gain, hc.camera.update_heading],
-                    [tracker.virtual_objects['bar'].add_motion, bar_oris],
-                    [hc.camera.clear_headings],
-                    [hc.window.record_start],
-                    [set_attr_func, tracker, 'start_time', time.time]
-                    ]
-            middles = [
-                    [hc.camera.get_background, hc.window.get_frame],
-                    [tracker.update_objects, hc.camera.update_heading],
-                    [motion_bar.set_ry, tracker.virtual_objects['bar'].get_angle],
-                    [cyl.set_ry, tracker.virtual_objects['bg'].get_angle],
-                    [hc.window.record_frame]
-                    ]
-            ends = [[cyl.switch, False],
-                    [motion_bar.switch, False],
-                    [tracker.virtual_objects['bar'].clear_motion],
-                    [tracker.virtual_objects['bg'].clear_motion],
-                    [tracker.add_test_data, hc.window.record_stop,
-                    {'bar_gain': bar_gain, 'bg_gain': bg_gain, 'bar_velocity': bar_velocity,
-                    'bar_orientation': tracker.virtual_objects['bar'].get_angles,
-                    'bg_orientation': tracker.virtual_objects['bg'].get_angles,
-                    'start_test': getattr(tracker, 'start_time'),
-                    'stop_test': time.time}, True],
-                    [hc.window.reset_rot],
-                    ]
-            hc.scheduler.add_test(num_frames, starts, middles, ends)
+tracker.start_time = time.time()
+for bg_gain in bg_gains:
+    for ori in starting_oris:
+        # mseq = hc.tools.mseq(2, power)
+        # orientations = np.zeros(num_frames, dtype=float)
+        # orientations[start_frame+1:] = 2 * mseq * np.pi / 180.
+        oris = ori + orientations
+        # oris = orientations
+        starts = [[bar.switch, True],
+                  [cyl.switch, True],
+                  [hc.camera.import_config],
+                  [tracker.virtual_objects['bar'].set_motion_parameters, bar_gain, hc.camera.update_heading],
+                  [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, hc.camera.update_heading],
+                  # [tracker.virtual_objects['bar'].set_motion_parameters, bar_gain, 0],
+                  # [tracker.virtual_objects['bg'].set_motion_parameters, bg_gain, 0],
+                  [tracker.virtual_objects['bar'].add_motion, oris],
+                #   [tracker.virtual_objects['bg'].add_motion, -oris],
+                  #[tracker.virtual_objects['fly_heading'].set_motion_parameters, -1, hc.camera.update_heading],
+                  [hc.camera.clear_headings],
+                  [hc.window.record_start],
+                  [set_attr_func, tracker, 'start_time', time.time]
+                  # [print, f"bar at {ori * 180 / np.pi :.3f} degs"]
+                  ]
+        middles = [
+                   [tracker.update_objects, hc.camera.update_heading],
+                   # [tracker.update_headings, 0],
+                   [bar.set_ry, tracker.virtual_objects['bar'].get_angle],
+                   [cyl.set_ry, tracker.virtual_objects['bg'].get_angle],
+                   # [bar.inc_ry, np.pi/180.],
+                   # [bar.set_ry, oris],
+                   # [cyl.set_ry, tracker.virtual_objects['fly_heading'].get_heading],
+                   [hc.window.record_frame]
+                   ]
+        ends = [[cyl.switch, False],
+                [bar.switch, False],
+                [tracker.virtual_objects['bar'].clear_motion],
+                [tracker.add_test_data, hc.window.record_stop,
+                 {'bar_gain': bar_gain, 'bg_gain': bg_gain,
+                  'start_angle': ori, 'orientation': oris,
+                  'bar': tracker.virtual_objects['bar'].get_angles,
+                  'start_test': getattr(tracker, 'start_time'),
+                  'stop_test': time.time}, True],
+                [hc.window.reset_rot],
+                ]
+        hc.scheduler.add_test(num_frames, starts, middles, ends)
 
 # for bg_gain in [-1, 0]:
 #     starts = [[bar.switch, False],
