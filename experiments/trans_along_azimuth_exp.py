@@ -91,7 +91,7 @@ starts, middles, ends = [], [], []
 offset_angles = np.linspace(0, 2*np.pi, 12, endpoint=False)
 num_frames = NUM_FRAMES
 
-for rot_gain in [0, -1]:
+for rot_gain in [-1]:
     for offset in offset_angles[offset_angles != 0]:
         # rotate the position delta by the starting angle
         sint, cost = np.sin(offset), np.cos(offset)

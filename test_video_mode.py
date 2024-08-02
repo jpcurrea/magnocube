@@ -3,7 +3,7 @@ todo:
 - add rotation and translational operations that are relative to the current
   orientation of the virtual camera
 - fix the unwrapping function to reset whenever the 
-    - I think I fixed it but I need to check for sure.
+    - I think I fixed it but I need to check for sure
 """
 
 #! /usr/bin/env python
