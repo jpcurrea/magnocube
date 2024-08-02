@@ -14,7 +14,7 @@ CROSSHAIR = False
 NAME = "translation_along_azimuth"
 FOLDER = os.path.abspath(NAME)
 NUM_FRAMES = 60*20   # should be about 10 seconds
-NUM_FRAMES = int(round(NUM_FRAMES / 5))
+# NUM_FRAMES = int(round(NUM_FRAMES / 5))
 SPEED = .1
 FAR = 5
 far = FAR
@@ -109,8 +109,8 @@ for rot_gain in [0, -1]:
         middles=[[hc.camera.get_background, hc.window.get_frame],
                 [tracker.update_objects, hc.camera.update_heading],
                 [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
-                [print, tracker.virtual_objects['pts'].get_angle],
-                
+                # [print, tracker.virtual_objects['pts'].get_angle],
+
                 ]
 
         ends = [

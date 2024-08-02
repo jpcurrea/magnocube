@@ -14,7 +14,7 @@ window = windows.Holocube_window()
 scheduler = schedulers.Scheduler()
 arduino = ard.Arduino()
 try:
-    camera = cameras.Camera(window=window, com_correction=False)
+    camera = cameras.Camera(window=window, com_correction=True)
 except:
     camera = None
 try:

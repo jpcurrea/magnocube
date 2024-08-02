@@ -921,8 +921,8 @@ class Camera():
             self.buffer_stop += 1
             self.buffer_stop %= len(self.buffer)
             # for dummy videos, call update_heading normally if the video isn't being stored
-            if self.dummy and not self.storing and self.vid_frame_num % frame_ratio == 0:
-                self.update_heading()
+            # if self.dummy and not self.storing and self.vid_frame_num % frame_ratio == 0:
+            #     self.update_heading()
 
     def capture_start(self, buffer_size=100):
         """Begin capturing, processing, and storing frames in a Thread.
@@ -1150,7 +1150,6 @@ class Camera():
                     img[offset:offset + self.height, offset:offset + self.height] = frame_cropped[..., None]
                 frame_cropped = img
             # self.signal_display(img=frame_cropped, heading=self.heading, heading_smooth=self.heading_smooth, com_shift=self.com_shift)
-            # print(self.display_data)
             self.signal_display(img=frame_cropped, **self.display_data)
             self.reset_data()
             # np.save(self.buffer_fn, frame_cropped)
@@ -1299,13 +1298,16 @@ class Camera():
             # else:
             # last_heading = self.headings[-1]
             # tail_dir = self.outer_ring.get_angle(frames, np.repeat(last_heading, len(frames)), thresh=thresh, invert=invert)
-            tail_dir = self.outer_ring.get_angle(frames, None, thresh=thresh, invert=invert)
+            if self.flipped:
+                tail_dir = np.nan
+            else:
+                tail_dir = self.outer_ring.get_angle(frames, None, thresh=thresh, invert=invert)
             center_x, center_y = self.width/2, self.height/2
             # 2a. if flipped, treat tail_dir as if it's the head_dir
-            if self.flipped:
-                headings = tail_dir
+            # if self.flipped:
+            #     headings = tail_dir
             # 2b. if not flipped but we generated a tail direction, get the head angle using the inner ring by omitting the tail angle
-            elif not cp.all(cp.isnan(tail_dir)):
+            if not cp.all(cp.isnan(tail_dir)):
                 nans = cp.isnan(tail_dir)
                 if cp.any(nans):
                     # replace NaNs with the mean of the non-nan values
@@ -1333,7 +1335,7 @@ class Camera():
                     # store the shift in the center of mass for plotting
                     self.com_shift = cp.around(diffs[-1]).astype(int)
                 else:
-                    self.com_shift = np.zeros(2)
+                    self.com_shift = cp.zeros(2)
             else:
                 self.com_shift = np.zeros(2)
                 diffs = np.zeros((len(headings), 2))
@@ -1660,6 +1662,10 @@ class TrackingTrial():
         # make a filename for storing the dataset later
         if not os.path.isdir(self.dirname):
             os.mkdir(self.dirname)
+        # store a list of virtual objects to track
+        self.virtual_objects = {}
+        # setup a virtual fly heading object
+        self.add_virtual_object(name='fly_heading', start_angle=0, motion_gain=-1)
         # and reset all of the trial data
         self.reset_trial_data()
 
@@ -1676,10 +1682,6 @@ class TrackingTrial():
 
     def reset_trial_data(self):
         """Reset all of the trial data, such as heading and timestamp data."""
-        # store a list of virtual objects to track
-        self.virtual_objects = {}
-        # setup a virtual fly heading object
-        self.add_virtual_object(name='fly_heading', start_angle=0, motion_gain=-1)
         # make an empty list for test data
         self.tests = []
         self.yaws = []  # the list of yaw arrays per test from holocube
@@ -1919,7 +1921,7 @@ class TrackingTrial():
                 # time.sleep(1)
                 # if os.path.exists(new_fn):
                 #     print(f"data file successfully stored at {new_fn}")
-        self.reset_trial_data()        
+        self.reset_trial_data()
         self.camera.clear_headings()
 
     def add_virtual_object(self, name, motion_gain=-1, start_angle=None):
@@ -2129,6 +2131,8 @@ class VirtualObject():
                 else:
                     offset = offset[0]
             self.virtual_angle += offset
+        # elif self.name == 'pts':
+        #     print("no angle offsets")
         # if np.isnan(self.virtual_angle):
             # print all of the important variables here
             # breakpoint()

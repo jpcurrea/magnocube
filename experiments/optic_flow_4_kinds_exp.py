@@ -97,7 +97,7 @@ for rot_gain in [0, -1]:
                 [tracker.update_objects, hc.camera.update_heading],
                 [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
                 # [cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot],
-                [print, tracker.virtual_objects['pts'].get_angle],
+                # [print, tracker.virtual_objects['pts'].get_angle],
                 ]
 
         ends = [
@@ -127,6 +127,7 @@ middles=[[hc.camera.get_background, hc.window.get_frame],
         # [tracker.update_objects, 0],
         [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
         # [cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot],
+        # [print, tracker.virtual_objects['pts'].get_angle],
         ]
 
 ends = [
@@ -159,6 +160,7 @@ middles = [[hc.camera.import_config],
            [tracker.update_objects, hc.camera.update_heading],
            [pts.set_pos_rot, tracker.virtual_objects['pts'].get_pos_rot],
         #    [cross_hair_image.set_pos_rot, tracker.virtual_objects['crosshair'].get_pos_rot],
+        #    [print, tracker.virtual_objects['pts'].get_angle],
           ]
 ends = [[tracker.add_test_data, hc.window.record_stop,
             {'rot_gain': rot_gain, 'thrust_speed': speed, 'stop_test': time.time,
