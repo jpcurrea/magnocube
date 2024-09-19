@@ -1034,6 +1034,8 @@ class FrameUpdater():
         data = pickle.loads(buffer)
         if 'com_shift' not in data.keys():
             data['com_shift'] = [0]
+        # test: is com_shift in the data?
+        # print(data['com_shift'])
         # if data is a reset signal, delete all stored data
         if 'reset' in data.keys():
             self.gui.reset_plots()

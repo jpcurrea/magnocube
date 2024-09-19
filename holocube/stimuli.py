@@ -288,10 +288,25 @@ class Shape(Movable):
             self.colors = array(repeat(color * 255, self.num * 3), dtype='byte')
         if add: self.add()
 
+def fibonacci_sphere(samples=1000):
+    points = []
+    phi = math.pi * (math.sqrt(5.) - 1.)  # golden angle in radians
+    for i in range(samples):
+        y = 1 - (i / float(samples - 1)) * 2  # y goes from 1 to -1
+        radius = math.sqrt(1 - y * y)  # radius at y
+        theta = phi * i  # golden angle increment
+        x = math.cos(theta) * radius
+        z = math.sin(theta) * radius
+        points.append((x, y, z))
+    return points
+
 class Sphere(Shape):
     """A sphere with a given radius and color."""
-    def __init__(self, window, radius, color=1, add=False):
-        # 
+    def __init__(self, window, radius, color=1, add=False, num_pts=100):
+        # make a sphere given the radius and number of points
+        # they should be nearly evenly distributed on the sphere
+        assert num_pts > 3, "num_pts must be greater than 3"
+        coords = radius * fibonacci_sphere(num_pts)
         super().__init__(window, coords, color, add)
 
 class Horizon(Shape):

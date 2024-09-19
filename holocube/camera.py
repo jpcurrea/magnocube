@@ -1120,7 +1120,7 @@ class Camera():
         if self.video_player.poll() is None:
             self.video_player.kill()
 
-    def display(self, framerate=12.):
+    def display(self, framerate=60.):
         """Save frame and heading for video_player_server.py to display."""
         # note: there were problems due to stray threads continuously running
         interval = 1/framerate
@@ -1952,12 +1952,20 @@ class TrackingTrial():
         """Get the fly heading and store for later."""
         return self.virtual_objects[lbl].get_angle()
 
-    def record_timestamp(self):
+    def record_timestamp(self, lbl=None):
         """Simply store the current timestamp for later."""
-        self.timestamp = time.time()
+        if 'timestamps' not in dir(self):
+            self.timestamps = {}
+        if lbl is not None:
+            self.timestamps[lbl] = time.time()
+        else:
+            self.timestamp = time.time()
 
-    def get_timestamp(self):
-        return self.timestamp
+    def get_timestamp(self, lbl=None):
+        if lbl is not None:
+            return self.timestamps[lbl]
+        else:
+            return self.timestamp
 
     def reset_virtual_object_motion(self):
         for lbl, object in self.virtual_objects.items():
@@ -2102,7 +2110,7 @@ class VirtualObject():
                 last_non_nan = np.where(past_no_nans)[0][-1]
                 self.virtual_angle = self.past_angles[last_non_nan]
             else:
-                breakpoint()
+                self.virtual_angle = 0
             #     self.virtual_angle = self.heading
         else:
             if len(self.past_angles) > 1:
