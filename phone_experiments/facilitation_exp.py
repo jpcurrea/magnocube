@@ -199,8 +199,8 @@ for zval in zvals:
                 [spot.set_pos, pos[0]],
                 # [hc.window.inc_pitch, elev_diff[0]],
                 # [hc.window.set_yaw, center_x * np.pi / 180.0],
+                [hc.daq.write_to_channel, 'holostim_writer', 255, 'digital'],
                 [hc.window.set_ref, 0, (255, 255, 255)],
-                # [hc.daq.write_to_channel, 'holostim_writer', 1, 'digital'],
                 [hc.camera.clear_headings]]
         middles = [[hc.camera.import_config],
                 [hc.camera.get_background, hc.window.get_frame],
@@ -211,10 +211,10 @@ for zval in zvals:
                 # [hc.window.inc_pitch, elev_diff]]
         ends = [[spot.switch, False],
                 [spot.reset_pos_rot],
-                # [hc.daq.write_to_channel, 'holostim_writer', 0, 'digital'],
+                [hc.daq.write_to_channel, 'holostim_writer', 0, 'digital'],
+                [hc.window.set_ref, 0, (0, 0, 0)],
                 [tracker.add_test_data, hc.window.get_frame,
                     {'stop_test': time.time, 'z': zs}, True],
-                [hc.window.set_ref, 0, (0, 0, 0)],
                 [hc.window.reset_pos_rot],
                 [hc.camera.reset_display_headings]]
         hc.scheduler.add_test(num_frames, starts, middles, ends)

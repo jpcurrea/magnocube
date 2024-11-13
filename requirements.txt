@@ -1,5 +1,6 @@
 h5py
 matplotlib
+nidaqmx
 numpy
 pyglet==1.5.27
 pyqtgraph

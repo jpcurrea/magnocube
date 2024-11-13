@@ -16,6 +16,7 @@ import copy
 from datetime import datetime
 import h5py
 import numpy as np
+import scipy.signal
 cupy_loaded = False
 try:
     import cupy as cp
@@ -1177,7 +1178,8 @@ class Camera():
         lists.
         """
         self.reset_data()
-        self.signal_display(reset=True)
+        if 'video_player' in dir(self):
+            self.signal_display(reset=True)
         if self.kalman:
             self.kalman_setup()
         self.background = np.zeros((912, 1140, 4), dtype='uint8')
@@ -1673,15 +1675,15 @@ class TrackingTrial():
         self.reset_trial_data()
 
     def h5_setup(self, save_fn=None):
-        if self.camera.capturing:
-            if save_fn is None:
-                self.fn = os.path.join(self.dirname, timestamp() + ".h5")
-            else:
-                self.fn = os.path.join(self.dirname, save_fn)
-            if not os.path.exists(self.fn):
-                temp_file = h5py.File(self.fn, 'w')
-                temp_file.close()
-            self.h5_file = h5py.File(self.fn, 'w')
+        # if self.camera.capturing:   # this was here to avoid saving dummy data
+        if save_fn is None:
+            self.fn = os.path.join(self.dirname, timestamp() + ".h5")
+        else:
+            self.fn = os.path.join(self.dirname, save_fn)
+        if not os.path.exists(self.fn):
+            temp_file = h5py.File(self.fn, 'w')
+            temp_file.close()
+        self.h5_file = h5py.File(self.fn, 'w')
 
     def reset_trial_data(self):
         """Reset all of the trial data, such as heading and timestamp data."""
@@ -1797,133 +1799,145 @@ class TrackingTrial():
             with length = len(arr).
         """
         # if self.camera.capturing and not self.camera.dummy:
-        if self.camera.capturing:
-            if callable(value):
-                value = value()
-            try:
-                self.h5_file.attrs[key] = value
-            except:
-                print(f"failed to store {key} = {value}")
+        # if self.camera.capturing:
+        if callable(value):
+            value = value()
+        try:
+            self.h5_file.attrs[key] = value
+            print(f"stored {key} = {value}")
+        except:
+            print(f"failed to store {key} = {value}")
 
     def save(self):
         """Store the test data and information into the H5 dataset."""
         # if self.camera.capturing and not self.camera.dummy:
-        if self.camera.capturing:
-            # store the two heading measurements
-            # if len(self.virtual_headings) > 0:
-            #     max_len = max([len(test) for test in self.virtual_headings])
-            #     new_virtual_headings = np.empty((len(self.virtual_headings), max_len), dtype=float)
-            #     new_virtual_headings.fill(np.nan)
-            #     for test, row in zip(self.virtual_headings, new_virtual_headings):
-            #         row[:len(test)] = test
-            #     self.virtual_headings = new_virtual_headings
-            for vals, label in zip(
-                    [self.yaws, self.realtime, self.headings, self.headings_smooth, self.headings_unwrapped],
-                    ['yaw', 'realtime', 'camera_heading', 'camera_heading_smooth', 'camera_heading_unwrapped']):
-                # remove any empty dimensions
-                if len(vals) > 1:
-                    # convert the camera and display headings into 2D arrays
-                    # get the maximum length array and pad the others
-                    max_len = max([len(test) for test in vals])
-                    # make an nans array and store the values
-                    # dimensions: test X frame
-                    arr = np.empty((len(vals), max_len), dtype=float)
-                    arr[:] = np.nan
-                    if arr.size > 0:
-                        for num, test in enumerate(vals):
-                            if isinstance(test, cp.ndarray) and cupy_loaded:
-                                test = test.get()
-                            elif isinstance(test, (list, tuple)):
-                                test = np.array(test)
-                            arr[num, :len(test)] = test
+        # if self.camera.capturing:
+        # store the two heading measurements
+        # if len(self.virtual_headings) > 0:
+        #     max_len = max([len(test) for test in self.virtual_headings])
+        #     new_virtual_headings = np.empty((len(self.virtual_headings), max_len), dtype=float)
+        #     new_virtual_headings.fill(np.nan)
+        #     for test, row in zip(self.virtual_headings, new_virtual_headings):
+        #         row[:len(test)] = test
+        #     self.virtual_headings = new_virtual_headings
+        for vals, label in zip(
+                [self.yaws, self.realtime, self.headings, self.headings_smooth, self.headings_unwrapped],
+                ['yaw', 'realtime', 'camera_heading', 'camera_heading_smooth', 'camera_heading_unwrapped']):
+            # remove any empty dimensions
+            if len(vals) > 1:
+                # convert the camera and display headings into 2D arrays
+                # get the maximum length array and pad the others
+                max_len = max([len(test) for test in vals])
+                # make an nans array and store the values
+                # dimensions: test X frame
+                arr = np.empty((len(vals), max_len), dtype=float)
+                arr[:] = np.nan
+                if arr.size > 0:
+                    for num, test in enumerate(vals):
+                        if isinstance(test, cp.ndarray) and cupy_loaded:
+                            test = test.get()
+                        elif isinstance(test, (list, tuple)):
+                            test = np.array(test)
+                        arr[num, :len(test)] = test
+            else:
+                if cupy_loaded:
+                    arr = cp.array(vals)
+                    arr = arr.get()
                 else:
-                    if cupy_loaded:
-                        arr = cp.array(vals)
-                        arr = arr.get()
+                    arr = np.array(vals)
+            arr = np.squeeze(arr)
+            # store the values in the h5 dataset
+            self.h5_file.create_dataset(label, data=arr)
+        # store indicator of whether the trial is a test or rest
+        self.h5_file.create_dataset("is_test", data=np.array(self.tests))
+        # store each test parameter as a dataset
+        for param in self.test_info.keys():
+            vals = self.test_info[param]
+            # if elements are functions, replace with output
+            functions = [callable(test) for test in vals]
+            new_vals = []
+            if any(functions):
+                for test in vals:
+                    if callable(test):
+                        new_vals += [test()]
                     else:
-                        arr = np.array(vals)
-                arr = np.squeeze(arr)
-                # store the values in the h5 dataset
-                self.h5_file.create_dataset(label, data=arr)
-            # store indicator of whether the trial is a test or rest
-            self.h5_file.create_dataset("is_test", data=np.array(self.tests))
-            # store each test parameter as a dataset
-            for param in self.test_info.keys():
-                vals = self.test_info[param]
-                # if elements are functions, replace with output
-                functions = [callable(test) for test in vals]
-                new_vals = []
-                if any(functions):
-                    for test in vals:
-                        if callable(test):
-                            new_vals += [test()]
-                        else:
-                            new_vals += [test]
-                    vals = new_vals
-                # let's try a simple conversion to a numpy array. if it fails, then do what's here
-                try:
-                    arr = np.squeeze(np.array(vals))
-                    self.h5_file.create_dataset(param, data=arr)
-                except:
-                    # if each val is an array
-                    if isinstance(vals[0], (list, np.ndarray, tuple)):
-                        # get the maximum length array and pad the others
-                        max_len = max([len(val) for val in vals])
-                    else:
-                        max_len = 1
-                    sub_val = vals[0]
-                    while isinstance(sub_val, (list, tuple)):
+                        new_vals += [test]
+                vals = new_vals
+            # let's try a simple conversion to a numpy array. if it fails, then do what's here
+            try:
+                arr = np.squeeze(np.array(vals))
+                self.h5_file.create_dataset(param, data=arr)
+            except:
+                # if each val is an array
+                if isinstance(vals[0], (list, np.ndarray, tuple)):
+                    # get the maximum length array and pad the others
+                    max_len = max([len(val) for val in vals])
+                else:
+                    max_len = 1
+                sub_val = vals[0]
+                while isinstance(sub_val, (list, tuple)):
+                    try:
+                        sub_val = sub_val[0]
+                    except:
+                        breakpoint()
+                if isinstance(sub_val, str):
+                    str_length = max([len(val) for val in vals])
+                    dtype = ('S', str_length)
+                else:
+                    dtype = type(sub_val)
+                if isinstance(vals[0][0], (list, np.ndarray, tuple)):
+                    num_channels = len(vals[0][0])
+                    arr = np.empty((len(vals), max_len, num_channels), dtype=dtype)
+                else:
+                    arr = np.empty((len(vals), max_len), dtype=dtype)
+                if np.issubdtype(dtype, np.floating):
+                    arr[:] = np.nan
+                elif np.issubdtype(dtype, np.integer):
+                    arr[:] = 0
+                else:
+                    arr[:] = None
+                for num, test in enumerate(vals):
+                    if isinstance(test, (list, np.ndarray, tuple)):
                         try:
-                            sub_val = sub_val[0]
+                            arr[num, :len(test)] = test
                         except:
                             breakpoint()
-                    if isinstance(sub_val, str):
-                        str_length = max([len(val) for val in vals])
-                        dtype = ('S', str_length)
                     else:
-                        dtype = type(sub_val)
-                    if isinstance(vals[0][0], (list, np.ndarray, tuple)):
-                        num_channels = len(vals[0][0])
-                        arr = np.empty((len(vals), max_len, num_channels), dtype=dtype)
-                    else:
-                        arr = np.empty((len(vals), max_len), dtype=dtype)
-                    if np.issubdtype(dtype, np.floating):
-                        arr[:] = np.nan
-                    elif np.issubdtype(dtype, np.integer):
-                        arr[:] = 0
-                    else:
-                        arr[:] = None
-                    for num, test in enumerate(vals):
-                        if isinstance(test, (list, np.ndarray, tuple)):
-                            try:
-                                arr[num, :len(test)] = test
-                            except:
-                                breakpoint()
-                        else:
-                            arr[num] = test
-                    # store the values in the h5 dataset
-                    self.h5_file.create_dataset(param, data=np.squeeze(arr))
-            # new_fn = self.fn.replace(".h5", "_fail.h5")
-            # new_dataset = h5py.File(new_fn, 'w')
-            # # store all of the datasets 
-            # for key in self.h5_file.keys():
-            #     self.h5_file.copy(self.h5_file[key], new_dataset[key])
-            # # and attributes from self.h5_file to new_dataset
-            # for key in self.h5_file.attrs.keys():
-            #     vals = self.h5_file[key]
-            #     new_dataset[key] = vals
-            # # now try closing the old dataset and check if it exists
-            self.h5_file.close()
-            time.sleep(1)        
-            if os.path.exists(self.fn):
-                print(f"data file stored at {self.fn}")
-            else:
-                print(f"data failed to save {self.fn}")
-                # # now try closing the copy and check if that still exists
-                # new_dataset.clos()
-                # time.sleep(1)
-                # if os.path.exists(new_fn):
-                #     print(f"data file successfully stored at {new_fn}")
+                        arr[num] = test
+                # store the values in the h5 dataset
+                self.h5_file.create_dataset(param, data=np.squeeze(arr))
+        # new_fn = self.fn.replace(".h5", "_fail.h5")
+        # new_dataset = h5py.File(new_fn, 'w')
+        # # store all of the datasets 
+        # for key in self.h5_file.keys():
+        #     self.h5_file.copy(self.h5_file[key], new_dataset[key])
+        # # and attributes from self.h5_file to new_dataset
+        # for key in self.h5_file.attrs.keys():
+        #     vals = self.h5_file[key]
+        #     new_dataset[key] = vals
+        # # now try closing the old dataset and check if it exists
+        # test: plot the 2 analog channels 
+        plt.figure()
+        plt.plot(self.h5_file['analog'][0])
+        plt.plot(self.h5_file['analog'][1])
+        # plt.plot(self.h5_file['analog'][0] - self.h5_file['analog'][1])
+        plt.show()
+        arr1, arr2 = self.h5_file['analog'][0], self.h5_file['analog'][1]
+        arr2 -= np.mean(arr2)
+        corr = scipy.signal.correlate(arr1, arr2, mode='full')
+
+        breakpoint()
+        self.h5_file.close()
+        time.sleep(1)        
+        if os.path.exists(self.fn):
+            print(f"data file stored at {self.fn}")
+        else:
+            print(f"data failed to save {self.fn}")
+            # # now try closing the copy and check if that still exists
+            # new_dataset.clos()
+            # time.sleep(1)
+            # if os.path.exists(new_fn):
+            #     print(f"data file successfully stored at {new_fn}")
         self.reset_trial_data()
         self.camera.clear_headings()
 

@@ -6,12 +6,13 @@ import os
 import time
 
 home_dir = os.getcwd()
-hc.window.start(config_file='phone_viewport.config')
+hc.window.start(config_file='phone_viewport_ref2.config')
 hc.arduino.start('dummy')
 # hc.camera.display_start(buffer_fn="C:\\Users\\roach\\Desktop\\pablo\\magnocube\\_buffer.npy",
 #                         heading_fn="C:\\Users\\roach\\Desktop\\pablo\\magnocube\\_heading.npy")
 hc.camera.display_start(buffer_fn="H:\\Other computers\\My Computer\\pablo\\magnocube\\_buffer.npy",
                         heading_fn="H:\\Other computers\\My Computer\\pablo\\magnocube\\_heading.npy")
+
 hc.camera.capture_start()
 time.sleep(.5)
 # os.chdir(home_dir)

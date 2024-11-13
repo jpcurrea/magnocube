@@ -153,7 +153,7 @@ class Viewport_class():
         # draw everything
         self.batch.draw()
 
-    def draw_ref(self, pos, rot):
+    def draw_ref(self, pos, rot, frame=0):
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         gluOrtho2D(0,100,0,100)
@@ -169,9 +169,19 @@ class Viewport_class():
         # flip it if any mirror projections are required
         glScalef(*self.scale_factors)
         # point the camera
-        glPointSize(10)
+        # glPointSize(10)
+        glPointSize(self.ref_pt_size)
         gluLookAt(0,0,0,0,0,-1,0,1,0)
         # gluLookAt(0,0,0,50,50,-1,0,1,0)
+
+        # if viewport has a flash pattern, update the ref color
+        for ref_ind, colors in self.flash_patterns.items():
+            # grab the current value from the flash pattern
+            color = colors[frame % len(colors)]
+            # set the color of the reference point
+            self.ref_vl.colors[(ref_ind*3):(ref_ind*3 + 3)] = color
+            breakpoint()
+
         # draw everything
         self.batch.draw()
 
@@ -278,10 +288,7 @@ class Holocube_window(pyglet.window.Window):
         config = configparser.ConfigParser()
         config.read(filename)
         # grab options for the whole screen
-        try:
-            self.bg_color = eval(config.get('screen', 'bg_color', fallback=['[0.,0.,0.,1.]']))
-        except:
-            breakpoint()
+        self.bg_color = eval(config.get('screen', 'bg_color', fallback=['[0.,0.,0.,1.]']))
         self.project = config.getboolean('screen', 'project', fallback=False)
         self.screen_number = config.getint('screen', 'screen_number', fallback=0)
         self.w = config.getint('screen', 'w_size', fallback=640)
@@ -441,7 +448,10 @@ class Holocube_window(pyglet.window.Window):
 
     def set_ref(self, ref_ind, color, viewport_ind=-1):
         '''Set the color of a ref pt with a three tuple'''
-        self.viewports[viewport_ind].ref_vl.colors[(ref_ind*3):(ref_ind*3 + 3)] = color
+        try:
+            self.viewports[viewport_ind].ref_vl.colors[(ref_ind*3):(ref_ind*3 + 3)] = color
+        except:
+            breakpoint()
 
     def move_ref(self, ref_ind, ax_ind, viewport_ind=0):
         '''Set the pos of a ref pt with a three tuple'''
@@ -471,7 +481,7 @@ class Holocube_window(pyglet.window.Window):
         
     
     def calc_flash_pattern(self, param, num_frames, ref_ind=0,
-                           dist=10, col_1=255, col_2=96,
+                           dist=10, col_1=(255, 255, 255), col_2=(96, 96, 96),
                            viewport_ind=0):
         '''Calculate the flash pattern needed to signal current states of the window'''
         if param == 'az':
@@ -481,8 +491,10 @@ class Holocube_window(pyglet.window.Window):
             num = 360-mod(arctan2(self.rot[2,1], sqrt(self.rot[2,2]**2 + self.rot[2,0]**2))*180/pi, 360)
             self.set_flash_pattern(bin(int(num)), num_frames, ref_ind, dist, col_1, col_2, viewport_ind)
         if param == 'start-stop':
-            pat = zeros(num_frames, dtype='ubyte')
-            pat[[1,-2]] == col_1
+            pat = zeros((num_frames, 3), dtype='uint8')
+            # pat[[0,-1]] = col_1
+            pat[0] = col_1
+            pat[-1] = col_2
             self.set_flash_pattern(pat, num_frames, ref_ind, dist, col_1, col_2, viewport_ind)
             
 
@@ -604,6 +616,19 @@ class Holocube_window(pyglet.window.Window):
             sint, cost = sin(ang), cos(ang)
             mat = array([[cost, 0, sint], [0, 1, 0], [-sint, 0, cost]])
             dot(self.rot, mat, out=self.rot)
+        else:
+            pass
+
+    def set_pitch(self, ang=0):
+        '''Increment current heading in yaw'''
+        if not np.isnan(ang):
+            self.pitch = ang
+            sint, cost = sin(ang), cos(ang)
+            # get pitch vector
+            mat = array([[1, 0, 0], [0, cost, -sint], [0, sint, cost]])
+            # dot(self.rot, mat, out=self.rot)
+            # replace rot with pitch vector
+            self.rot = mat
         else:
             pass
 
@@ -845,7 +870,10 @@ class Holocube_window(pyglet.window.Window):
 
         # now let each viewport draw itself
         for viewport in self.viewports:
-            viewport.draw(self.pos, self.rot)
+            if viewport.projection.startswith('ref'):
+                viewport.draw_ref(self.pos, self.rot, self.frame)
+            else:
+                viewport.draw(self.pos, self.rot)
 
         # execute any keypress frame action commands
         for num_frames, fun, args, kwargs in self.frame_actions:

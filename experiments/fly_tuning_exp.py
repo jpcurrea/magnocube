@@ -29,7 +29,7 @@ hc.scheduler.add_exp(name='fly tuning', starts=exp_starts, ends=exp_ends)
 
 # generate a series of heading positions between -90 and 90
 # angles = n.linspace(-90, 90, )
-headings = np.linspace(0, 720 * np.pi / 180., 480)
+headings = np.linspace(0, 20 * np.pi / 180., 480)
 headings = np.append(headings, headings[::-1])
 
 # add a test different heading locations with a loop
@@ -38,8 +38,9 @@ starts = [[pts.switch, True],
           [tracker.virtual_objects['fly_heading'].add_motion, headings]
          ]
 middles = [[hc.camera.import_config],
-           [hc.camera.get_background, hc.window.get_frame],
-           [tracker.update_objects, hc.camera.update_heading],
+         #   [hc.camera.get_background, hc.window.get_frame],
+         #   [tracker.update_objects, hc.camera.update_heading],
+           [tracker.update_objects, 0],
            # [hc.window.set_rot, np.linspace(0, 2 * np.pi, 100)[:, None]],
         #    [print, tracker.virtual_objects['fly_heading'].get_angle],
            [pts.set_rot, tracker.virtual_objects['fly_heading'].get_rot],

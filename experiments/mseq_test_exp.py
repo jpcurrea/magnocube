@@ -6,11 +6,8 @@ Designate an area of  60° x 60° in the receptive field of one eye, and define 
 import numpy as np
 from math import ceil
 import holocube.hc as hc
-from holocube.camera import Camera, TrackingTrial
-from functools import partial
-import time
+from holocube.camera import Camera
 
-FOLDER = 'facilitation_exp'
 
 # calculate what the radius must be to form a 5 degree spot at a distance of 1
 spot_rad = np.tan(5. * np.pi / 180. / 2)
@@ -131,6 +128,7 @@ yvals = np.array(yvals)
 yvals -= center_y
 xvals -= center_x
 
+
 # # plot the 4 different tests
 # from matplotlib import pyplot as plt
 # fig, rows = plt.subplots(num_tracks, max_tracks, figsize=(max_tracks*2, num_tracks*2), sharex=True, sharey=True)
@@ -162,59 +160,34 @@ xvals -= center_x
 # plt.tight_layout()
 # plt.show()
 
-tracker = TrackingTrial(camera=hc.camera, window=hc.window, dirname=FOLDER)
-
+# breakpoint()
 exp_starts = [[hc.window.set_bg, [.5, .5, .5, 1.]],
-              [tracker.h5_setup],
-              [tracker.add_exp_attr, 'start_exp', time.time],
-              [tracker.add_exp_attr, 'experiment', 'facilitation'],
               [hc.window.set_far, 5],
-              [hc.daq.start_recording, partial(tracker.__getattribute__, 'h5_file')],
+              [hc.window.set_ref, 0, (0, 0, 0)],
               [hc.camera.clear_headings]]
 exp_ends = [[hc.window.set_bg, [0., 0., 0., 1.]],
-            [hc.daq.stop_recording],
-            [tracker.add_exp_attr, 'stop_exp', time.time],
-            [tracker.save],
+            [hc.window.set_ref, 0, (0, 0, 0)],
             [hc.camera.clear_headings]]
-hc.scheduler.add_exp(name='facilitation', starts=exp_starts, ends=exp_ends)
+hc.scheduler.add_exp(name='mseq_test', starts=exp_starts, ends=exp_ends)
 
-yvals *= np.pi / 180.
-xvals *= np.pi / 180.
+# get an msequence to set the ref colors
+mseq = hc.tools.mseq(2, 8, 0, 0)
+num_frames = len(mseq)
+colors = np.zeros((num_frames, 3), dtype=int)
+# when mseq == 1, set the ref color to white
+colors[mseq == 1][:] = 255
+# when mseq == -1, leave the ref color black
 
-# todo: knowing the xvals, which really are the azimuthal angles, we can calculate the
-# circular trajectory that the spot should follow in 3D space
-elevs = yvals
-azi = xvals
-radius = 1.0
-xvals = radius * np.cos(azi - np.pi/2)
-yvals = radius * np.sin(azi - np.pi/2)
-# calculate the z values based on the elevation
-zvals = radius * np.sin(elevs)
-# now make the 4 tests
-for zval in zvals:
-    for zs in zval:
-        pos = np.array([xvals, zs, yvals]).T
-        # elev_diff = np.append([0], np.diff(elev))
-        starts = [[spot.switch, True],
-                [spot.set_pos, pos[0]],
-                # [hc.window.inc_pitch, elev_diff[0]],
-                # [hc.window.set_yaw, center_x * np.pi / 180.0],
-                [hc.window.set_ref, 0, (255, 255, 255)],
-                # [hc.daq.write_to_channel, 'holostim_writer', 1, 'digital'],
-                [hc.camera.clear_headings]]
-        middles = [[hc.camera.import_config],
-                [hc.camera.get_background, hc.window.get_frame],
-                # [hc.window.save_png, 'phone'],
-                # [hc.window.set_ref, 0, (0, 0, 0)],
-                [spot.set_pos, pos]]
-                # [spot.set_ry, azi]]
-                # [hc.window.inc_pitch, elev_diff]]
-        ends = [[spot.switch, False],
-                [spot.reset_pos_rot],
-                # [hc.daq.write_to_channel, 'holostim_writer', 0, 'digital'],
-                [tracker.add_test_data, hc.window.get_frame,
-                    {'stop_test': time.time, 'z': zs}, True],
-                [hc.window.set_ref, 0, (0, 0, 0)],
-                [hc.window.reset_pos_rot],
-                [hc.camera.reset_display_headings]]
-        hc.scheduler.add_test(num_frames, starts, middles, ends)
+# elev_diff = np.append([0], np.diff(elev))
+starts = [[spot.switch, True],
+        [hc.window.set_ref, 0, (0, 0, 0)],
+        [hc.camera.clear_headings]]
+middles = [[hc.camera.import_config],
+        [hc.camera.get_background, hc.window.get_frame],
+        [hc.window.set_ref, 0, colors]]
+ends = [[spot.switch, False],
+        [spot.reset_pos_rot],
+        [hc.window.set_ref, 0, (0, 0, 0)],
+        [hc.window.reset_pos_rot],
+        [hc.camera.reset_display_headings]]
+hc.scheduler.add_test(num_frames, starts, middles, ends)

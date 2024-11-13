@@ -10,6 +10,7 @@ import scipy.stats
 from scipy import ndimage
 from numpy.linalg import norm
 from math import acos
+import math
 from matplotlib import pyplot as plt
 
 
@@ -100,14 +101,16 @@ class Movable(pyglet.graphics.Group):
 
     def add(self):
         # are colors specified?
+        # todo: make colors and txtcoords the same length as coords
         if self.colors is None: self.colors = zeros((3, self.num),
                                                     dtype='byte') + 255
         if self.txtcoords is None: self.txtcoords = zeros((2, self.num),
-                                                          dtype='float')
-        self.vl = self.window.world.add(self.num, self.gl_type, self,
-                                        ('v3f', self.coords.T.flatten()),
-                                        ('c3B/stream', self.colors.T.flatten()),
-                                        ('t2f', self.txtcoords.T.flatten()))
+                                                        dtype='float')
+        # self.vl = self.window.world.add(self.num, self.gl_type, self,
+        #                                 ('v3f', self.coords.T.flatten()),
+        #                                 ('c3B/stream', self.colors.T.flatten()),
+        #                                 ('t2f', self.txtcoords.T.flatten()))
+        self.vl = self.window.world.add(self.num, self.gl_type, self, ('v3f', self.coords.T.flatten()), ('c3B/stream', self.colors.T.flatten()), ('t2f', self.txtcoords.T.flatten()))
         self.visible = True
 
     def remove(self):
@@ -170,7 +173,10 @@ class Movable(pyglet.graphics.Group):
         self.pos[2] = z
 
     def set_rx(self, x):
-        self.rot[0] = x
+        try:
+            self.rot[0] = x
+        except:
+            breakpoint()
 
     def set_ry(self, y):
         self.rot[1] = y
@@ -298,16 +304,36 @@ def fibonacci_sphere(samples=1000):
         x = math.cos(theta) * radius
         z = math.sin(theta) * radius
         points.append((x, y, z))
-    return points
+    return np.array(points)
 
 class Sphere(Shape):
     """A sphere with a given radius and color."""
-    def __init__(self, window, radius, color=1, add=False, num_pts=100):
+    def __init__(self, window, radius, color=1, add=False, num_pts=1000):
         # make a sphere given the radius and number of points
         # they should be nearly evenly distributed on the sphere
         assert num_pts > 3, "num_pts must be greater than 3"
         coords = radius * fibonacci_sphere(num_pts)
+        coords = coords.T
+        # # test: make a 3d plot of coords to make sure it's a sphere
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111, projection='3d')
+        # ax.scatter(coords[:, 0], coords[:, 1], coords[:, 2])
+        # plt.show()
+        # we need to convert this into it's set of quad vertices
+        # we can do this by taking the first 4 points and making a quad
+        # then we can take the next 4 points and make another quad
+        # and so on
+        # quads = []
+        # for i in range(0, num_pts, 4):
+        #     quads.append(coords[i:i+4])
+        # breakpoint()
+        # coords = np.array(quads)        
         super().__init__(window, coords, color, add)
+        self.colors = np.zeros(coords.shape, dtype=int)
+        self.colors.fill(color)
+        # and correct self.num
+        self.txtcoords = None
+        self.num = self.coords.shape[1]
 
 class Horizon(Shape):
     '''A horizon rendered out to some large distance off.'''
@@ -381,7 +407,6 @@ class Spherical_segment(Movable):
         self.num = len(xlist)
         self.txtcoords = None
         self.colors = array(repeat(color * 255, self.num * 3), dtype='byte')
-
 
 # class pts_class(movable_fast_class):
 class Points(Movable):

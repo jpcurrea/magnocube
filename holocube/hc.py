@@ -8,6 +8,7 @@ import holocube.arduino as ard
 import holocube.tools as tools
 import holocube.camera as cameras
 import holocube.multiplexer as multiplexer
+import holocube.daq as daq
 
 # objects we need in run and exps
 window = windows.Holocube_window()
@@ -21,3 +22,8 @@ try:
     multiplexer = multiplexer.Multiplexer()
 except:
     multiplexer = None
+
+try:
+    daq = daq.DAQ("DAQ.ini", show=False)
+except:
+    daq = None

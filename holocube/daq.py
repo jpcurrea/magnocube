@@ -47,21 +47,22 @@ class DAQ():
         self.buffer_size = int(self.device_info['buffer_size'])
         self.sample_rate = int(self.device_info['sample_rate'])
         self.display_rate = int(self.device_info['display_rate'])
-        self.projector_rate = int(self.device_info['projector_rate'])
         # setup the device settings
         self.device = system.Device(self.device_name)
         # setup the analog channels
         # get the list of digital and analog channels to record from
-        self.channels_digital = dict(config['digital_channels'])
-        self.channels_analog = dict(config['analog_channels'])
+        self.inputs_digital = dict(config['inputs_digital'])
+        self.inputs_analog = dict(config['inputs_analog'])
         self.buffer_analog, self.buffer_digital = [], []
         # set the sample rate and bin size for rendering at the desired display rate
         self.bin_size = round(float(self.sample_rate)/float(self.display_rate))
         # self.bin_size = 1
-        for input_type, channels in zip(['analog', 'digital'], [self.channels_analog, self.channels_digital]):
+        self.input_tasks = []
+        for input_type, channels in zip(['analog', 'digital'], [self.inputs_analog, self.inputs_digital]):
             if len(channels) > 0:
                 task = nidaqmx.Task()
                 self.__setattr__(f"task_{input_type}", task)
+                self.input_tasks += [task]
                 for name, val in channels.items():
                     # add analog input channel
                     if input_type == 'analog':
@@ -90,98 +91,57 @@ class DAQ():
                     self.__setattr__(f'temp_buffer_{input_type}', np.zeros((len(channels), self.bin_size)))
                 else:
                     self.__setattr__(f'temp_buffer_{input_type}', np.zeros((len(channels), self.bin_size), dtype='uint8'))
-        # plot the channels
+        # do the same, setting up stream writers for each output channel
+        self.outputs_analog = dict(config['outputs_analog'])
+        self.outputs_digital = dict(config['outputs_digital'])
+        self.output_tasks = []
+        self.digital_writers = {}
+        self.analog_writers = {}
+        for output_type, channels in zip(['analog', 'digital'], [self.outputs_analog, self.outputs_digital]):
+            if len(channels) > 0:
+                task = nidaqmx.Task()
+                self.__setattr__(f"task_{output_type}_out", task)
+                self.output_tasks += [task]
+                for name, val in channels.items():
+                    if output_type == 'analog':
+                        task.ao_channels.add_ao_voltage_chan(val, min_val=-5, max_val=5)
+                        writer = stream_writers.AnalogSingleChannelWriter(task.out_stream)
+                        self.analog_writers[name] = writer
+                    else:
+                        task.do_channels.add_do_chan(val, line_grouping=nidaqmx.constants.LineGrouping.CHAN_FOR_ALL_LINES)
+                        writer = stream_writers.DigitalSingleChannelWriter(task.out_stream)
+                        self.digital_writers[name] = writer        # plot the channels
+        # setup the plot
         self.scale = max(round(float(self.buffer_size) / 10000.), 1)
         print(f"bin size = {self.bin_size}")
         # start a circular indexing
         self.current_frame_analog = 0
         self.current_frame_digital = 0
-        # plot the figure
-        self.plot()
-        # setup autoscaling whenever the user changes the x-range
-        self.plots[0].sigXRangeChanged.connect(self.set_scale)
+        if show:
+            # plot the figure
+            self.plot()
+            # setup autoscaling whenever the user changes the x-range
+            # self.plots[0].sigXRangeChanged.connect(self.set_scale)
         # low_time is the duration of off and high_time is the duration of on signal
         # start a PWM signal using ctr0, which outputs to PFI12 based on NiMAX
         # add callback to the task
         self.is_reading = False
+        self.recording = False
         self.start_readers()
         if show:
             # make a QTimer to update the plot
             self.plotter_thread()
-        # self.is_recording = False
-        # self.start_camera()
-
-    def start_camera(self, frame_ratio=1, duty_cycle=.1):
-        """Start synchronized camera acquisition.
-
-        Parameters
-        ----------
-        frame_ratio : int, default=1
-            The number of camera frames per each projector frame.
-        duty_cycle : float, default=.5
-            The proportion of each frame interval that the camera will sense light.
-
-        """
-        # Create a new task for the digital output channel
-        self.camera_task_output = nidaqmx.Task()
-        # Add a digital output channel to the task
-        self.camera_task_output.ao_channels.add_ao_voltage_chan('MagnoDAQ/ao0', min_val=0, max_val=3.3)
-        # change the sample rate
-        self.output_rate = self.sample_rate
-        self.output_bin_size = int(round(self.bin_size * self.output_rate/self.sample_rate))
-        self.camera_task_output.out_stream.output_buf_size = self.output_bin_size
-        self.camera_task_output.timing.cfg_samp_clk_timing(rate=self.output_rate, samps_per_chan=self.output_bin_size)
-        # make a stream writer
-        self.camera_writer = stream_writers.AnalogSingleChannelWriter(self.camera_task_output.out_stream, auto_start=True)
-        # start camera 
-        self.set_camera_exposure(frame_ratio, duty_cycle)
-        # self.camera_thread = threading.Thread(target=self.camera_loop, name='camera_loop')
-        self.is_recording = True
-        # self.camera_thread.start()
-        while self.is_recording:
-            if np.any(self.temp_buffer_analog[0] > 1):
-                try:
-                    self.camera_writer.write_many_sample(self.camera_pulse)
-                except:
-                    breakpoint()
-                # self.camera_task_output.write([3.3, 3.3])
-                # self.camera_task_output.wait_until_done()
-                # self.camera_task_output.write(self.camera_pulse, auto_start=True)
-                # time.sleep(self.exposure)
-                # self.camera_task_output.write([0, 0])
-                time.sleep(.1)
-
-    def camera_loop(self):
-        while self.is_recording:
-            if np.any(self.temp_buffer_analog[0] > 1):
-                # self.camera_writer.write_many_sample(self.camera_pulse[:-1])
-                # self.camera_task_output.write(3.3)
-                self.camera_task_output.write(self.camera_pulse, auto_start=True)
-                # time.sleep(self.exposure)
-                # self.camera_task_output.write(0)
-                time.sleep(.1)
-
-    def set_camera_exposure(self, frame_ratio=1, duty_cycle=.1):
-        self.frame_ratio = frame_ratio
-        self.camera_fps =  self.frame_ratio * self.projector_rate
-        interval = 1./self.camera_fps
-        self.exposure = duty_cycle * interval
-        print(f"exposure: {self.exposure}, camera fps: {self.camera_fps}")
-        # todo: make a pulse bin
-        self.camera_pulse = np.zeros(self.output_bin_size)
-        dur = int(round(self.exposure * self.output_rate))
-        self.camera_pulse[:dur] = 3.3
 
     def start_readers(self):
         """Make a separate thread to repeatedly run self.read()."""
         # set is_reading to true 
         self.is_reading = True
         # make the thread for reading analog data 
-        if len(self.channels_analog) > 0:
+        if len(self.inputs_analog) > 0:
             self.analog_reader = threading.Thread(target=self.reader_analog, name='reader_analog')
             self.analog_reader.start()
         # make the thread for reading digital data 
-        if len(self.channels_digital) > 0:
+        if len(self.inputs_digital) > 0:
             self.digital_reader = threading.Thread(target=self.reader_digital, name='reader_digital')
             self.digital_reader.start()
 
@@ -211,6 +171,11 @@ class DAQ():
             else:
                 # input digital values
                 self.buffer_digital[:, self.current_frame_digital:end_frame] = self.temp_buffer_digital
+            # store the temporary buffer into the h5 file if recording
+            if self.recording:
+                self.recorded_frames += 1
+                self.record_h5['digital'].resize((len(self.inputs_digital), self.recorded_frames * self.bin_size))
+                self.record_h5['digital'][:, -self.bin_size:] = self.temp_buffer_digital[:]
             # update current frame number
             self.current_frame_digital += self.bin_size
             self.current_frame_digital %= self.buffer_size
@@ -231,7 +196,12 @@ class DAQ():
             else:
                 # input analog and digital values
                 if 'temp_buffer_analog' in dir(self):
-                    self.buffer_analog[:, self.current_frame_analog:end_frame] = self.temp_buffer_analog
+                    self.buffer_analog[:, self.current_frame_analog:end_frame] = self.temp_buffer_analog[:]
+            # store the temporary buffer into the h5 file if recording
+            if self.recording:
+                self.recorded_frames += 1
+                self.record_h5['analog'].resize((len(self.inputs_analog), self.recorded_frames * self.bin_size))
+                self.record_h5['analog'][:, -self.bin_size:] = self.temp_buffer_analog[:]
             # update current frame number
             self.current_frame_analog += self.bin_size
             self.current_frame_analog %= self.buffer_size
@@ -250,6 +220,20 @@ class DAQ():
             data=self.temp_buffer_digital,
             number_of_samples_per_channel=self.bin_size)
 
+    def write_to_channel(self, channel_name, value, output_type='analog'):
+        """Write a single value to the specified output channel."""
+        if output_type == 'analog':
+            writer = self.analog_writers.get(channel_name)
+            if writer is None:
+                raise ValueError(f"No writer found for analog channel '{channel_name}'")
+            writer.write_one_sample(value)
+        else:
+            writer = self.digital_writers.get(channel_name)
+            if writer is None:
+                raise ValueError(f"No writer found for digital channel '{channel_name}'")
+            writer.write_one_sample_port_byte(value)
+            # print(f"writing {value} to {channel_name}")
+
     def plot(self):
         """Plot the incoming stream from the DAQ."""
         # get the time value for each frame
@@ -261,18 +245,17 @@ class DAQ():
         self.layout = pg.GraphicsLayout()
         self.view.setCentralItem(self.layout)
         self.view.show()
-        self.view.resize(600, len(self.channels_analog) * 200)
+        self.view.resize(800, len(self.inputs_analog) * 200)
         # add plots for each channel
         self.plots = []
         first_plot = None  # use first plot to link all the x-axes
         num = 0
         for channels, buffer in zip(
-            [self.channels_analog, self.channels_digital], 
+            [self.inputs_analog, self.inputs_digital], 
             [self.buffer_analog, self.buffer_digital]):
             for channel, vals in zip(channels.keys(), buffer):
-                plot = self.layout.addPlot(num, 0, x=self.times, y=vals,
-                                        name=channel,
-                                        title=channel.replace("_", " "))
+                plot = self.layout.addPlot(row=num, col=0, x=self.times, y=vals,
+                    name=channel, title=channel.replace("_", " "), colspan=4)
                 # make lineplot
                 plot.dataItems[0].setData(x=self.times[::self.scale], y=vals[::self.scale])
                 plot.showGrid(x=True, y=True, alpha=.5)
@@ -283,21 +266,52 @@ class DAQ():
                     plot.setXLink(first_plot)
                 num += 1
         # make a vertical layout for the buttons
-        # self.layout_buttons = QtWidgets.QVBoxLayout()
-        # make a proxy widget to place the graphic item
-        self.button_capture_proxy = QtWidgets.QGraphicsProxyWidget()
-        self.button_capture = QtWidgets.QPushButton('capture')
-        self.button_capture.clicked.connect(self.capture)
-        self.button_capture_proxy.setWidget(self.button_capture)
-        # add the button to the window layout
-        self.layout.addItem(self.button_capture_proxy)
-        # make a proxy widget to place the graphic item
-        self.button_preview_proxy = QtWidgets.QGraphicsProxyWidget()
-        self.button_preview = QtWidgets.QPushButton('capture +\npreview')
-        self.button_preview.clicked.connect(self.preview)
-        self.button_preview_proxy.setWidget(self.button_preview)
-        # add the button to the window layout
-        self.layout.addItem(self.button_preview_proxy)
+        button_layout = self.layout.addLayout(row=0, col=4, rowspan=num, colspan=1)
+        buttons = [
+            ('capture', self.capture),
+            ('capture +\npreview', self.preview),
+            ('start recording', self.start_recording_button),
+            ('stop recording', self.stop_recording)
+        ]
+
+        for label, callback in buttons:
+            button_proxy = QtWidgets.QGraphicsProxyWidget()
+            button = QtWidgets.QPushButton(label)
+            button.clicked.connect(callback)
+            button_proxy.setWidget(button)
+            button_layout.addItem(button_proxy)
+            button_layout.nextRow()
+
+        # add a button for writing to the output channels and a slider for the value
+        for output_type, channels in zip(['analog', 'digital'], [self.outputs_analog, self.outputs_digital]):
+            for channel in channels.keys():
+                # Create a button for writing to the channel
+                button_proxy = QtWidgets.QGraphicsProxyWidget()
+                button = QtWidgets.QPushButton(f"write to {channel}")
+                button.clicked.connect(partial(self.write_to_channel, channel, output_type=output_type))
+                button_proxy.setWidget(button)
+                button_layout.addItem(button_proxy)
+                button_layout.nextRow()
+
+                # Create a slider for setting the output value
+                slider_proxy = QtWidgets.QGraphicsProxyWidget()
+                slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+                if output_type == 'analog':
+                    slider.setMinimum(-5 if output_type == 'analog' else 0)
+                    slider.setMaximum(5 if output_type == 'analog' else 255)
+                else:
+                    slider.setMinimum(0)
+                    slider.setMaximum(255)
+                    slider.setTickInterval(255)
+                slider.setValue(0)
+                slider.valueChanged.connect(partial(self.write_to_channel, channel, output_type=output_type))
+                slider_proxy.setWidget(slider)
+                button_layout.addItem(slider_proxy)
+                button_layout.nextRow()
+
+        # Set the column stretch factors
+        self.layout.layout.setColumnStretchFactor(0, 4)  # Plots column
+        self.layout.layout.setColumnStretchFactor(4, 1)  # Buttons column
 
     def update_plot(self):
         """Update the plots by moving the current frame index."""
@@ -335,15 +349,15 @@ class DAQ():
         # store in an hdf5 file with the timestamp as the filename
         h5_file = h5py.File(new_fn, 'w')
         # store the buffer
-        for channels, buffer in zip([self.channels_analog, self.channels_digital], [self.buffer_analog, self.buffer_digital]):
+        for channels, buffer in zip([self.inputs_analog, self.inputs_digital], [self.buffer_analog, self.buffer_digital]):
             for (name, port), vals in zip(
                     channels.items(), buffer):
                 h5_file[name] = vals
         # and the time marks
         h5_file['time'] = self.times
         # store channel info
-        h5_file['analog_info'] = tuple(self.channels_analog)
-        h5_file['digital_info'] = tuple(self.channels_digital)
+        h5_file['analog_info'] = tuple(self.inputs_analog)
+        h5_file['digital_info'] = tuple(self.inputs_digital)
         # notify the user
         print(f"buffer captured in {new_fn}")
 
@@ -362,7 +376,7 @@ class DAQ():
             axes = [axes]
         # for each channel, plot the buffer
         num = 0
-        for num, (buffer, channels) in enumerate(zip([buffer_analog, buffer_digital], [self.channels_analog, self.channels_digital])):
+        for num, (buffer, channels) in enumerate(zip([buffer_analog, buffer_digital], [self.inputs_analog, self.inputs_digital])):
             for vals, channel in zip(buffer, channels):
                 ax = axes[num]
                 ax.plot(self.times, vals)
@@ -372,34 +386,93 @@ class DAQ():
         plt.tight_layout()
         plt.show()
 
-daq = DAQReader(storage_directory='test_data')
-# start plotting the traces
-daq.app.exec()
+    def start_recording_button(self):
+        self.start_recording()
 
-# start a QTimer process to run daq.read until stopped.
-# start a thread to run daq.update_plot when it receives a signal from daq.read
+    def start_recording(self, h5_file=None, fn=None):
+        """Open an H5 file and start storing the read data.
 
-threshed = daq.buffer_analog[0] > .5
-edges = np.diff(threshed.astype(int))
-matplotlib.use('Qt5Agg')
-plt.plot(edges)
-# plt.xlim(0, 1000)
-plt.show()
-edges = np.where(edges == 1)[0]
-# camera rate = 100 frame per second
-# based on our measurements, 1 camera frame = 29 DAQ samples
-# what is the duration of one DAQ sample?
-# => .001 seconds per 29 DAQ samples
-# => DAQ rate = 29/.001
-# frame_lengths = np.diff(edges)
-# frame_duration_camera = .01/5       # seconds
-# num_frames_DAQ = np.median(frame_lengths)
-# DAQ_framerate = num_frames_DAQ / frame_duration_camera
-# print(f"DAQ framerate = {DAQ_framerate}")
-# the framerate on the DAQ is roughly 50,000 Hz
-# let's test for the framerate of the camera
-frame_lengths = np.diff(edges)   # in DAQ samples per camera frame
-frame_rate = 1. / frame_lengths  # in camera frames per DAQ sample
-sample_rate = daq.sample_rate              # DAQ samples per second
-frame_rate = frame_rate * sample_rate
-print(f"Camera framerate = {np.median(frame_rate)} fps")
+        Note: This works by setting self.recording to True and then
+        storing the temporary buffer into both the circular buffer and
+        the h5 file. 
+
+        Parameters
+        ----------
+        :param fn: str default=None
+            Filename to store the data in. H5 files allow for easy storage of
+            large datasets without keeping it all in RAM.
+        :param h5_file: h5py.File default=None
+        """
+        self.new_file = False
+        if h5_file is not None:
+            if callable(h5_file):
+                h5_file = h5_file()
+            self.record_h5 = h5_file
+            self.record_fn = self.record_h5.filename
+        elif fn is not None:
+            self.record_fn = fn
+            self.record_h5 = h5py.File(self.record_fn, 'w')
+            self.new_file = True
+        else:            
+            now = datetime.now()
+            timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
+            self.record_fn = os.path.join(self.storage_directory, timestamp + ".hdf5")
+            # first, make a new file
+            self.record_h5 = h5py.File(self.record_fn, 'w')
+            self.new_file = True
+        if self.new_file:
+            print(f"recording to {self.record_fn}")
+        # this should have two datasets, one for analog and one for digital
+        if len(self.inputs_analog) > 0:
+            self.record_h5.create_dataset(
+                'analog', shape=(len(self.inputs_analog), 0), 
+                maxshape=(len(self.inputs_analog), None), 
+                chunks=(len(self.inputs_analog), self.bin_size))
+        if len(self.inputs_digital) > 0:
+            self.record_h5.create_dataset(
+                'digital', shape=(len(self.inputs_digital), 0), 
+                maxshape=(len(self.inputs_digital), None), 
+                chunks=(len(self.inputs_digital), self.bin_size))
+        # then set self.recording to True
+        self.recording = True
+        self.recorded_frames = 0
+
+    def stop_recording(self):
+        """Stop recording and close the h5 file."""
+        self.recording = False
+        if self.new_file:
+            self.record_h5.close()
+            # notify the user
+            print("recording stopped")
+
+    def close(self):
+        """Close the DAQ and stop all processes."""
+        self.is_reading = False
+        # stop all running threads
+        if 'analog_reader' in dir(self):
+            self.analog_reader.join()
+        if 'digital_reader' in dir(self):
+            self.digital_reader.join()
+        # close all tasks
+        for task in self.tasks:
+            task.close()
+        # if plotting, stop the plot timer
+        if 'plot_timer' in dir(self):
+            self.plot_timer.stop()
+            self.app.quit()
+
+
+if __name__ == "__main__":
+    daq = DAQ(show=True)
+    daq.app.exec_()
+    # # test recording and stopping without plotting
+    # daq.start_recording()
+    # time.sleep(5)
+    # daq.stop_recording()
+    # # try loading the file and plotting it using matplotlib
+    # h5 = h5py.File(daq.record_fn, 'r')
+    # # grab the values from the buffer
+    # buffer_analog = np.copy(h5['analog'])
+    # plt.plot(buffer_analog[0])
+    # plt.show()
+    # daq.close()

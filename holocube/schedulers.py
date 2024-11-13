@@ -48,13 +48,23 @@ class Test():
         """
         if frame_num == 0:                   # first frame
             for func, arg_list in self.starts:
-                try:
-                    # func(*[arg() if hasattr(arg, '__call__') else
-                    #     take(arg, frame_num, mode='wrap', axis=0) if isinstance(arg, ndarray) else
-                    #     arg for arg in arg_list])                    
-                    func(*arg_list)
-                except:
-                    breakpoint()
+                func(*arg_list)
+                # try:
+                #     new_list = []
+                #     for arg in arg_list:
+                #         # if callable(arg):
+                #         if hasattr(arg, '__call__'):                        
+                #             new_list.append(arg())
+                #         elif isinstance(arg, ndarray):
+                #             new_list.append(take(arg, frame_num, mode='wrap', axis=0))
+                #         else:
+                #             new_list.append(arg)
+                #     func(*new_list)
+                #     # func(*[arg() if hasattr(arg, '__call__') else
+                #     #     take(arg, frame_num, mode='wrap', axis=0) if isinstance(arg, ndarray) else
+                #     #     arg for arg in arg_list])    
+                # except:
+                #     breakpoint()
             return True
         elif frame_num < self.num_frames:    # each frame in the middle
             for func, arg_list in self.mids:
